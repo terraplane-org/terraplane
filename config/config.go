@@ -13,6 +13,8 @@ type Config struct {
 }
 
 func NewConfig() (*Config, error) {
+	viper.SetConfigType("env")
+	viper.AddConfigPath(".")
 	viper.SetConfigName(".env")
 
 	err := viper.ReadInConfig()
@@ -23,14 +25,19 @@ func NewConfig() (*Config, error) {
 	var c Config
 	err = viper.Unmarshal(&c)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal subject: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	return &c, nil
 }
 
 func configNotFound(err error) bool {
-	return !errors.Is(err, viper.ConfigFileNotFoundError{}) && !errors.Is(err, &os.PathError{})
+	var notFound viper.ConfigFileNotFoundError
+	if errors.As(err, &notFound) {
+		return true
+	}
+	var pathErr *os.PathError
+	return errors.As(err, &pathErr)
 }
 
 func init() {
