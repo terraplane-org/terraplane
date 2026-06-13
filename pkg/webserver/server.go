@@ -21,16 +21,21 @@ type server struct {
 }
 
 func (o *server) Start(ctx context.Context) error {
-	o.logger.Info("Web server started")
-	err := o.server.ListenAndServe()
-	if err != nil {
+	errCh := make(chan error, 1)
+	go func() {
+		o.logger.Info("Web server started", "addr", o.server.Addr)
+		errCh <- o.server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
+	case <-ctx.Done():
+		return nil
 	}
-	<-ctx.Done()
-	return nil
 }
 
 func (o *server) Shutdown(ctx context.Context) error {
