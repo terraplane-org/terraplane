@@ -11,18 +11,20 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
+	"github.com/xyzjace/terraplane/pkg/webserver"
 )
 
 // Injectors from wire.go:
 
-func InitializeOrchestrator() (orchestrator.Orchestrator, error) {
+func InitializeOrchestrator() (orchestrator.Manager, error) {
 	configConfig, err := config.NewConfig()
 	if err != nil {
 		return nil, err
 	}
 	logger := logging.NewLogger()
-	orchestratorOrchestrator := orchestrator.NewOrchestrator(configConfig, logger)
-	return orchestratorOrchestrator, nil
+	server := webserver.NewServer(configConfig, logger)
+	manager := orchestrator.NewManager(configConfig, logger, server)
+	return manager, nil
 }
 
 // wire.go:

@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	LogLevel string `mapstructure:"LOG_LEVEL"`
+	LogLevel            string        `mapstructure:"LOG_LEVEL"`
+	ServerShutdownTimer time.Duration `mapstructure:"SERVER_SHUTDOWN_TIMER"`
 }
 
 func NewConfig() (*Config, error) {
@@ -44,4 +46,5 @@ func init() {
 	viper.AutomaticEnv()
 
 	viper.SetDefault("LOG_LEVEL", "info")
+	viper.SetDefault("SERVER_SHUTDOWN_TIMER", "5s")
 }
