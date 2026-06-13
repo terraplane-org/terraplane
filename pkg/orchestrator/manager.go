@@ -40,13 +40,13 @@ func (o *manager) Start(ctx context.Context) error {
 	group.Go(func() error {
 		<-ctx.Done()
 
-		_, cancel := context.WithTimeout(
+		shutdownCtx, cancel := context.WithTimeout(
 			context.Background(),
 			o.serverShutdownTimer,
 		)
 		defer cancel()
 
-		return o.server.Shutdown()
+		return o.server.Shutdown(shutdownCtx)
 	})
 
 	if err := group.Wait(); err != nil {

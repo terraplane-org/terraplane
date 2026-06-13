@@ -9,7 +9,7 @@ import (
 
 type Server interface {
 	Start(ctx context.Context) error
-	Shutdown() error
+	Shutdown(ctx context.Context) error
 }
 
 type server struct {
@@ -23,7 +23,7 @@ func (o *server) Start(ctx context.Context) error {
 	return nil
 }
 
-func (o *server) Shutdown() error {
+func (o *server) Shutdown(ctx context.Context) error {
 	o.logger.Debug("Web server shutdown")
 	return nil
 }

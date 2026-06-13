@@ -32,7 +32,7 @@ generate:
 		$(GOCMD) generate -v ./...
 
 run: build
-		$(BIN_TERRAPLANE_ORCHESTRATOR) serve
+		$(BIN_TERRAPLANE_ORCHESTRATOR) orchestrator
 
 # Cross compilation
 build-linux:
