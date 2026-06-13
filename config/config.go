@@ -10,8 +10,10 @@ import (
 )
 
 type Config struct {
-	LogLevel            string        `mapstructure:"LOG_LEVEL"`
-	ServerShutdownTimer time.Duration `mapstructure:"SERVER_SHUTDOWN_TIMER"`
+	LogLevel                  string        `mapstructure:"LOG_LEVEL"`
+	ServerShutdownTimer       time.Duration `mapstructure:"SERVER_SHUTDOWN_TIMER"`
+	OrchestratorListenAddress string        `mapstructure:"ORCHESTRATOR_LISTEN_ADDRESS"`
+	OrchestratorListenPort    int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
 }
 
 func NewConfig() (*Config, error) {
@@ -47,4 +49,6 @@ func init() {
 
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("SERVER_SHUTDOWN_TIMER", "5s")
+	viper.SetDefault("ORCHESTRATOR_LISTEN_ADDRESS", "127.0.0.1")
+	viper.SetDefault("ORCHESTRATOR_LISTEN_PORT", 8080)
 }

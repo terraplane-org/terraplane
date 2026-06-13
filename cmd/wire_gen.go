@@ -22,7 +22,8 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		return nil, err
 	}
 	logger := logging.NewLogger()
-	server := webserver.NewServer(configConfig, logger)
+	handler := webserver.NewHandler(logger)
+	server := webserver.NewServer(configConfig, logger, handler)
 	manager := orchestrator.NewManager(configConfig, logger, server)
 	return manager, nil
 }
