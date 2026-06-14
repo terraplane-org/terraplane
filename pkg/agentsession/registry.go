@@ -20,6 +20,7 @@ type registry struct {
 }
 
 func (r *registry) Register(ctx context.Context, session Session) error {
+	// TODO: Handle duplicate registration
 	r.logger.Debug("Registering agent session", "id", session.ID())
 	r.mu.Lock()
 	defer r.mu.Unlock()
