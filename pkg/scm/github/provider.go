@@ -42,7 +42,8 @@ func (p *provider) ParseWebhook(r *http.Request) (scm.Event, error) {
 	case "issue_comment": // This is the main event we're interested in for GH comments
 		return p.parseIssueCommentWebhook(r)
 	default:
-		return scm.Unknown, fmt.Errorf("unhandled GitHub event: %s", github_event)
+		p.logger.Warn("Received unhandled GitHub event: %s", github_event)
+		return scm.Unknown, nil
 	}
 }
 
