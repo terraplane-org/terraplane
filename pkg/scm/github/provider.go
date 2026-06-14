@@ -93,6 +93,8 @@ func (p *provider) parseIssueCommentWebhook(r *http.Request) (scm.Event, error) 
 
 	// TODO: This will require auth checks to ensure the comment author has permissions to trigger actions
 	// TODO: We may want to support configurable prefixes for commands, e.g. "tp plan" instead of "terraplane plan"
+	// TODO: We should identify that the comment is a type we care about, convert it to an internal type and return it so the upstream caller can parse it.
+	// This will prevent every SCM provider from having to implement the same logic.
 	if strings.Contains(event.Comment.Body, "terraplane plan") {
 		return p.ParsePlanWebhook(r)
 	}
