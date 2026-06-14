@@ -7,21 +7,33 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 )
 
+const agentHelloTimeout = 10 * time.Second
+
 type handler struct {
-	logger      log.Logger
-	scmProvider scm.Provider
-	mux         *http.ServeMux
+	logger          log.Logger
+	scmProvider     scm.Provider
+	mux             *http.ServeMux
+	sessionRegistry agentsession.Registry
+	sessionFactory  agentsession.Factory
 }
 
-func NewHandler(logger log.Logger, scmProvider scm.Provider) http.Handler {
+func NewHandler(
+	logger log.Logger,
+	scmProvider scm.Provider,
+	sessionRegistry agentsession.Registry,
+	sessionFactory agentsession.Factory,
+) http.Handler {
 	h := &handler{
-		logger:      logger,
-		mux:         http.NewServeMux(),
-		scmProvider: scmProvider,
+		logger:          logger,
+		mux:             http.NewServeMux(),
+		scmProvider:     scmProvider,
+		sessionRegistry: sessionRegistry,
+		sessionFactory:  sessionFactory,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -45,30 +57,33 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		h.logger.Error("Failed to accept websocket connection", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Failed to accept websocket connection"))
 		return
 	}
-	defer c.CloseNow()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	helloCtx, cancel := context.WithTimeout(r.Context(), agentHelloTimeout)
 	defer cancel()
 
-	var v any
-	err = wsjson.Read(ctx, c, &v)
-	if err != nil {
-		h.logger.Error("Failed to read websocket message", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Failed to read websocket message"))
+	var agentID string
+	if err := wsjson.Read(helloCtx, conn, &agentID); err != nil {
+		h.logger.Error("Failed to read agent hello", "error", err)
+		conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
 		return
 	}
 
-	h.logger.Info("Received websocket message", "message", v)
+	session := h.sessionFactory.New(agentID, conn)
 
-	c.Close(websocket.StatusNormalClosure, "")
+	if err := h.sessionRegistry.Register(r.Context(), session); err != nil {
+		h.logger.Error("Failed to register agent session", "agent_id", agentID, "error", err)
+		conn.Close(websocket.StatusInternalError, "failed to register agent session")
+		return
+	}
+
+	if err := session.Run(r.Context()); err != nil {
+		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
+	}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -3,10 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"golang.org/x/sync/errgroup"
@@ -17,47 +15,67 @@ type Manager interface {
 }
 
 type manager struct {
-	clientShutdownTimer time.Duration
-	logger              log.Logger
-	orchestratorURL     string
+	logger          log.Logger
+	orchestratorURL string
+	id              string
 }
 
 func (o *manager) Start(ctx context.Context) error {
-	group, ctx := errgroup.WithContext(ctx)
+	if o.id == "" {
+		o.logger.Error("Agent ID is not set. Please set the AGENT_ID environment variable.")
+		return fmt.Errorf("agent ID is not set")
+	}
+
+	o.logger.Info("Starting agent...")
+
+	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, nil)
+	if err != nil {
+		return fmt.Errorf("dial orchestrator: %w", err)
+	}
+
+	session := NewSession(o.id, conn, o.logger)
+
+	if err := session.Hello(ctx); err != nil {
+		session.CloseNow()
+		return fmt.Errorf("write agent hello: %w", err)
+	}
+
+	group, gCtx := errgroup.WithContext(ctx)
+	runDone := make(chan struct{})
 
 	group.Go(func() error {
-		c, _, err := websocket.Dial(ctx, o.orchestratorURL, nil)
-		if err != nil {
-			return fmt.Errorf("failed to dial orchestrator: %w", err)
-		}
-		defer c.CloseNow()
-
-		err = wsjson.Write(ctx, c, "hi")
-		if err != nil {
-			return fmt.Errorf("failed to write to orchestrator: %w", err)
-		}
-
-		c.Close(websocket.StatusNormalClosure, "")
-		return nil
+		defer close(runDone)
+		defer session.Close(websocket.StatusNormalClosure, "")
+		return session.Run(gCtx)
 	})
 
 	group.Go(func() error {
-		<-ctx.Done()
-		return nil
+		select {
+		case <-gCtx.Done():
+			session.Close(websocket.StatusNormalClosure, "shutting down")
+			return nil
+		case <-runDone:
+			return nil
+		}
 	})
 
 	if err := group.Wait(); err != nil {
-		o.logger.Error(fmt.Sprintf("something went wrong, stopping orchestrator processes: %v", err))
+		if gCtx.Err() != nil {
+			o.logger.Info("Agent stopped")
+			return nil
+		}
+		o.logger.Error("Agent stopped with error", "error", err)
 		return err
 	}
 
+	o.logger.Info("Agent stopped")
 	return nil
 }
 
 func NewManager(config *config.Config, logger log.Logger) Manager {
 	return &manager{
-		clientShutdownTimer: config.AgentClientShutdownTimer,
-		orchestratorURL:     config.AgentOrchestratorURL,
-		logger:              logger,
+		id:              config.AgentID,
+		orchestratorURL: config.AgentOrchestratorURL,
+		logger:          logger,
 	}
 }
