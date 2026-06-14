@@ -16,6 +16,7 @@ type Config struct {
 	OrchestratorListenPort          int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
 	OrchestratorGithubWebhookSecret string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
 	AgentClientShutdownTimer        time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
+	AgentOrchestratorURL            string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
 }
 
 func NewConfig() (*Config, error) {
@@ -55,4 +56,5 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_LISTEN_PORT", 8080)
 	viper.SetDefault("ORCHESTRATOR_GITHUB_WEBHOOK_SECRET", "")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
+	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
 }

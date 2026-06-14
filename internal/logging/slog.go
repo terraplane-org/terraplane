@@ -3,7 +3,9 @@ package logging
 import (
 	"log/slog"
 	"os"
+	"strings"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
 )
 
@@ -31,9 +33,22 @@ func (l *slogLogger) With(args ...any) log.Logger {
 	return &slogLogger{logger: l.logger.With(args...)}
 }
 
-func NewLogger() log.Logger {
+func NewLogger(cfg *config.Config) log.Logger {
 	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: parseLogLevel(cfg.LogLevel),
 	})
 	return &slogLogger{logger: slog.New(handler)}
+}
+
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

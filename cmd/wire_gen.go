@@ -23,7 +23,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := logging.NewLogger()
+	logger := logging.NewLogger(configConfig)
 	provider := github.NewProvider(logger, configConfig)
 	handler := webserver.NewHandler(logger, provider)
 	server := webserver.NewServer(configConfig, logger, handler)
@@ -36,7 +36,7 @@ func InitializeAgent() (agent.Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := logging.NewLogger()
+	logger := logging.NewLogger(configConfig)
 	manager := agent.NewManager(configConfig, logger)
 	return manager, nil
 }
