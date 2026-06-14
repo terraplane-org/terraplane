@@ -53,11 +53,11 @@ func (s *Session) Run(ctx context.Context) error {
 }
 
 func (s *Session) Close(status websocket.StatusCode, reason string) {
-	s.conn.Close(status, reason)
+	_ = s.conn.Close(status, reason)
 }
 
 func (s *Session) CloseNow() {
-	s.conn.CloseNow()
+	_ = s.conn.CloseNow()
 }
 
 func isExpectedDisconnect(err error) bool {

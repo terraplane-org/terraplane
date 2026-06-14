@@ -27,8 +27,10 @@ func (s *session) ID() string {
 }
 
 func (s *session) Run(ctx context.Context) error {
-	defer s.registry.Unregister(ctx, s.id)
-	defer s.conn.Close(websocket.StatusNormalClosure, "")
+	defer func() {
+		_ = s.registry.Unregister(ctx, s.id)
+		_ = s.conn.Close(websocket.StatusNormalClosure, "")
+	}()
 
 	s.logger.Info("Agent session started", "agent_id", s.id)
 
