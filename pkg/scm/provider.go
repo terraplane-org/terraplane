@@ -12,4 +12,5 @@ type Provider interface {
 	ParseApplyWebhook(r *http.Request) (Event, error)
 	ParseUnknownWebhook(r *http.Request) (Event, error)
 	ParseUnlockWebhook(r *http.Request) (Event, error)
+	ParseIgnoredEvent(r *http.Request) (Event, error)
 }
