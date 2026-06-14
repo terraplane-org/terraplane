@@ -48,12 +48,10 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	_, err := h.scmProvider.ParseWebhook(r)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Failed to parse SCM webhook"))
+		writeResponse(w, http.StatusInternalServerError, "Failed to parse SCM webhook")
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Webhook parsed successfully"))
+	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +67,7 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	var agentID string
 	if err := wsjson.Read(helloCtx, conn, &agentID); err != nil {
 		h.logger.Error("Failed to read agent hello", "error", err)
-		conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
+		_ = conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
 		return
 	}
 
@@ -77,7 +75,7 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.sessionRegistry.Register(r.Context(), session); err != nil {
 		h.logger.Error("Failed to register agent session", "agent_id", agentID, "error", err)
-		conn.Close(websocket.StatusInternalError, "failed to register agent session")
+		_ = conn.Close(websocket.StatusInternalError, "failed to register agent session")
 		return
 	}
 
@@ -91,6 +89,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) healthCheck(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	writeResponse(w, http.StatusOK, "OK")
+}
+
+func writeResponse(w http.ResponseWriter, status int, body string) {
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
 }

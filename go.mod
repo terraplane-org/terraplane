@@ -1,6 +1,6 @@
 module github.com/xyzjace/terraplane
 
-go 1.25.2
+go 1.25.11
 
 require (
 	github.com/coder/websocket v1.8.14
