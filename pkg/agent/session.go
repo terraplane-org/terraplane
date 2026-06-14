@@ -64,5 +64,11 @@ func isExpectedDisconnect(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	return websocket.CloseStatus(err) == websocket.StatusNormalClosure
+
+	switch websocket.CloseStatus(err) {
+	case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+		return true
+	default:
+		return false
+	}
 }

@@ -2,6 +2,7 @@ package agentsession
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/coder/websocket"
@@ -35,7 +36,7 @@ func (s *session) Run(ctx context.Context) error {
 		var msg string
 		err := wsjson.Read(ctx, s.conn, &msg)
 		if err != nil {
-			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
+			if isExpectedDisconnect(err) || ctx.Err() != nil {
 				s.logger.Info("Agent session closed", "agent_id", s.id)
 				return nil
 			}
@@ -43,5 +44,18 @@ func (s *session) Run(ctx context.Context) error {
 		}
 
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg)
+	}
+}
+
+func isExpectedDisconnect(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	switch websocket.CloseStatus(err) {
+	case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+		return true
+	default:
+		return false
 	}
 }

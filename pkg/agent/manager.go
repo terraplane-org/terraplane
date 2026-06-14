@@ -40,21 +40,27 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("write agent hello: %w", err)
 	}
 
-	group, ctx := errgroup.WithContext(ctx)
+	group, gCtx := errgroup.WithContext(ctx)
+	runDone := make(chan struct{})
 
 	group.Go(func() error {
+		defer close(runDone)
 		defer session.Close(websocket.StatusNormalClosure, "")
-		return session.Run(ctx)
+		return session.Run(gCtx)
 	})
 
 	group.Go(func() error {
-		<-ctx.Done()
-		session.Close(websocket.StatusNormalClosure, "shutting down")
-		return nil
+		select {
+		case <-gCtx.Done():
+			session.Close(websocket.StatusNormalClosure, "shutting down")
+			return nil
+		case <-runDone:
+			return nil
+		}
 	})
 
 	if err := group.Wait(); err != nil {
-		if ctx.Err() != nil {
+		if gCtx.Err() != nil {
 			o.logger.Info("Agent stopped")
 			return nil
 		}

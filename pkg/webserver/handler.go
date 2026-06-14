@@ -1,7 +1,9 @@
 package webserver
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -9,6 +11,8 @@ import (
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 )
+
+const agentHelloTimeout = 10 * time.Second
 
 type handler struct {
 	logger          log.Logger
@@ -59,12 +63,13 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	helloCtx, cancel := context.WithTimeout(r.Context(), agentHelloTimeout)
+	defer cancel()
+
 	var agentID string
-	if err := wsjson.Read(r.Context(), conn, &agentID); err != nil {
+	if err := wsjson.Read(helloCtx, conn, &agentID); err != nil {
 		h.logger.Error("Failed to read agent hello", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		// TODO: Send a message to the agent
-		conn.Close(websocket.StatusInternalError, "failed to read agent hello")
+		conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
 		return
 	}
 
@@ -72,8 +77,6 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.sessionRegistry.Register(r.Context(), session); err != nil {
 		h.logger.Error("Failed to register agent session", "agent_id", agentID, "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		// TODO: Send a message to the agent
 		conn.Close(websocket.StatusInternalError, "failed to register agent session")
 		return
 	}
