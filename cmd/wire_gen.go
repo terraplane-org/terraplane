@@ -10,6 +10,7 @@ import (
 	"github.com/goforj/wire"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
+	"github.com/xyzjace/terraplane/pkg/agent"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
 	"github.com/xyzjace/terraplane/pkg/webserver"
@@ -27,6 +28,16 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	handler := webserver.NewHandler(logger, provider)
 	server := webserver.NewServer(configConfig, logger, handler)
 	manager := orchestrator.NewManager(configConfig, logger, server)
+	return manager, nil
+}
+
+func InitializeAgent() (agent.Manager, error) {
+	configConfig, err := config.NewConfig()
+	if err != nil {
+		return nil, err
+	}
+	logger := logging.NewLogger()
+	manager := agent.NewManager(configConfig, logger)
 	return manager, nil
 }
 

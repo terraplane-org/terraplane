@@ -1,0 +1,20 @@
+services:
+  orchestrator:
+    build: .
+    image: terraplane
+    command: ["orchestrator"]
+    ports:
+      - "8080:8080"
+    environment:
+      ORCHESTRATOR_LISTEN_ADDRESS: 0.0.0.0
+      ORCHESTRATOR_LISTEN_PORT: "8080"
+    env_file:
+      - .env
+
+  agent:
+    image: terraplane
+    command: ["agent"]
+    depends_on:
+      - orchestrator
+    env_file:
+      - .env
