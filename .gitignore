@@ -1,2 +1,4 @@
 .env
 bin/*
+local_data/*
+!local_data/.gitkeep

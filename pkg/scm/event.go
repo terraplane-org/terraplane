@@ -8,11 +8,15 @@ const (
 	Plan
 	Apply
 	Unlock
+	Ignored
 )
 
 var eventNames = map[Event]string{
-	Plan:  "plan",
-	Apply: "apply",
+	Plan:    "plan",
+	Apply:   "apply",
+	Unlock:  "unlock",
+	Ignored: "ignored",
+	Unknown: "unknown",
 }
 
 func (e Event) String() string {
