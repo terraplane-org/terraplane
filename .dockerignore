@@ -1,0 +1,6 @@
+.git
+bin
+local_data
+.env
+*.md
+docker-compose.yml
