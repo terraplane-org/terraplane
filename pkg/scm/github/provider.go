@@ -31,6 +31,7 @@ func (p *provider) ParseWebhook(r *http.Request) (scm.Event, error) {
 		return scm.Unknown, err
 	}
 
+	// TODO: This needs to handle the comment webhook parsing first to determine what kind of action to take
 	github_event := r.Header.Get("X-GitHub-Event")
 	switch github_event {
 	case "":
@@ -46,6 +47,7 @@ func (p *provider) ParseWebhook(r *http.Request) (scm.Event, error) {
 }
 
 func (p *provider) ParsePlanWebhook(r *http.Request) (scm.Event, error) {
+	p.logger.Info("Received plan webhook!")
 	return scm.Plan, nil
 }
 
