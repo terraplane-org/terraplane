@@ -4,7 +4,7 @@ package terraplane.v1;
 
 option go_package = "github.com/xyzjace/terraplane/pkg/terraplane/v1;terraplanev1";
 
-message Envelope {
+message TerraformEnvelope {
   string job_id = 1; // UUID of the job. Stable across all messages for a given job
   oneof payload {
     PlanCommand plan = 2;

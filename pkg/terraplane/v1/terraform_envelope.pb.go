@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.1
-// source: terraplane/v1/envelope.proto
+// source: terraplane/v1/terraform_envelope.proto
 
 package terraplanev1
 
@@ -21,38 +21,38 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Envelope struct {
+type TerraformEnvelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	JobId string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"` // UUID of the job. Stable across all messages for a given job
 	// Types that are valid to be assigned to Payload:
 	//
-	//	*Envelope_Plan
-	//	*Envelope_Ack
-	//	*Envelope_PlanResult
-	//	*Envelope_Apply
-	//	*Envelope_ApplyResult
-	//	*Envelope_Unlock
-	//	*Envelope_UnlockResult
-	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
+	//	*TerraformEnvelope_Plan
+	//	*TerraformEnvelope_Ack
+	//	*TerraformEnvelope_PlanResult
+	//	*TerraformEnvelope_Apply
+	//	*TerraformEnvelope_ApplyResult
+	//	*TerraformEnvelope_Unlock
+	//	*TerraformEnvelope_UnlockResult
+	Payload       isTerraformEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Envelope) Reset() {
-	*x = Envelope{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[0]
+func (x *TerraformEnvelope) Reset() {
+	*x = TerraformEnvelope{}
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Envelope) String() string {
+func (x *TerraformEnvelope) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Envelope) ProtoMessage() {}
+func (*TerraformEnvelope) ProtoMessage() {}
 
-func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[0]
+func (x *TerraformEnvelope) ProtoReflect() protoreflect.Message {
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63,133 +63,133 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
-func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use TerraformEnvelope.ProtoReflect.Descriptor instead.
+func (*TerraformEnvelope) Descriptor() ([]byte, []int) {
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Envelope) GetJobId() string {
+func (x *TerraformEnvelope) GetJobId() string {
 	if x != nil {
 		return x.JobId
 	}
 	return ""
 }
 
-func (x *Envelope) GetPayload() isEnvelope_Payload {
+func (x *TerraformEnvelope) GetPayload() isTerraformEnvelope_Payload {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
-func (x *Envelope) GetPlan() *PlanCommand {
+func (x *TerraformEnvelope) GetPlan() *PlanCommand {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_Plan); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_Plan); ok {
 			return x.Plan
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetAck() *Ack {
+func (x *TerraformEnvelope) GetAck() *Ack {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_Ack); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_Ack); ok {
 			return x.Ack
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetPlanResult() *PlanResult {
+func (x *TerraformEnvelope) GetPlanResult() *PlanResult {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_PlanResult); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_PlanResult); ok {
 			return x.PlanResult
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetApply() *ApplyCommand {
+func (x *TerraformEnvelope) GetApply() *ApplyCommand {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_Apply); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_Apply); ok {
 			return x.Apply
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetApplyResult() *ApplyResult {
+func (x *TerraformEnvelope) GetApplyResult() *ApplyResult {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_ApplyResult); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_ApplyResult); ok {
 			return x.ApplyResult
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetUnlock() *UnlockCommand {
+func (x *TerraformEnvelope) GetUnlock() *UnlockCommand {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_Unlock); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_Unlock); ok {
 			return x.Unlock
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetUnlockResult() *UnlockResult {
+func (x *TerraformEnvelope) GetUnlockResult() *UnlockResult {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_UnlockResult); ok {
+		if x, ok := x.Payload.(*TerraformEnvelope_UnlockResult); ok {
 			return x.UnlockResult
 		}
 	}
 	return nil
 }
 
-type isEnvelope_Payload interface {
-	isEnvelope_Payload()
+type isTerraformEnvelope_Payload interface {
+	isTerraformEnvelope_Payload()
 }
 
-type Envelope_Plan struct {
+type TerraformEnvelope_Plan struct {
 	Plan *PlanCommand `protobuf:"bytes,2,opt,name=plan,proto3,oneof"`
 }
 
-type Envelope_Ack struct {
+type TerraformEnvelope_Ack struct {
 	Ack *Ack `protobuf:"bytes,3,opt,name=ack,proto3,oneof"`
 }
 
-type Envelope_PlanResult struct {
+type TerraformEnvelope_PlanResult struct {
 	PlanResult *PlanResult `protobuf:"bytes,4,opt,name=plan_result,json=planResult,proto3,oneof"`
 }
 
-type Envelope_Apply struct {
+type TerraformEnvelope_Apply struct {
 	Apply *ApplyCommand `protobuf:"bytes,5,opt,name=apply,proto3,oneof"`
 }
 
-type Envelope_ApplyResult struct {
+type TerraformEnvelope_ApplyResult struct {
 	ApplyResult *ApplyResult `protobuf:"bytes,6,opt,name=apply_result,json=applyResult,proto3,oneof"`
 }
 
-type Envelope_Unlock struct {
+type TerraformEnvelope_Unlock struct {
 	Unlock *UnlockCommand `protobuf:"bytes,7,opt,name=unlock,proto3,oneof"`
 }
 
-type Envelope_UnlockResult struct {
+type TerraformEnvelope_UnlockResult struct {
 	UnlockResult *UnlockResult `protobuf:"bytes,8,opt,name=unlock_result,json=unlockResult,proto3,oneof"`
 }
 
-func (*Envelope_Plan) isEnvelope_Payload() {}
+func (*TerraformEnvelope_Plan) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_Ack) isEnvelope_Payload() {}
+func (*TerraformEnvelope_Ack) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_PlanResult) isEnvelope_Payload() {}
+func (*TerraformEnvelope_PlanResult) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_Apply) isEnvelope_Payload() {}
+func (*TerraformEnvelope_Apply) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_ApplyResult) isEnvelope_Payload() {}
+func (*TerraformEnvelope_ApplyResult) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_Unlock) isEnvelope_Payload() {}
+func (*TerraformEnvelope_Unlock) isTerraformEnvelope_Payload() {}
 
-func (*Envelope_UnlockResult) isEnvelope_Payload() {}
+func (*TerraformEnvelope_UnlockResult) isTerraformEnvelope_Payload() {}
 
 type PlanCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -204,7 +204,7 @@ type PlanCommand struct {
 
 func (x *PlanCommand) Reset() {
 	*x = PlanCommand{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[1]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -216,7 +216,7 @@ func (x *PlanCommand) String() string {
 func (*PlanCommand) ProtoMessage() {}
 
 func (x *PlanCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[1]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -229,7 +229,7 @@ func (x *PlanCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCommand.ProtoReflect.Descriptor instead.
 func (*PlanCommand) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{1}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *PlanCommand) GetRepo() string {
@@ -276,7 +276,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[2]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +288,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[2]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +301,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{2}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Ack) GetMessage() string {
@@ -322,7 +322,7 @@ type PlanResult struct {
 
 func (x *PlanResult) Reset() {
 	*x = PlanResult{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[3]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +334,7 @@ func (x *PlanResult) String() string {
 func (*PlanResult) ProtoMessage() {}
 
 func (x *PlanResult) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[3]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +347,7 @@ func (x *PlanResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanResult.ProtoReflect.Descriptor instead.
 func (*PlanResult) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{3}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PlanResult) GetSuccess() bool {
@@ -383,7 +383,7 @@ type ApplyCommand struct {
 
 func (x *ApplyCommand) Reset() {
 	*x = ApplyCommand{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[4]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -395,7 +395,7 @@ func (x *ApplyCommand) String() string {
 func (*ApplyCommand) ProtoMessage() {}
 
 func (x *ApplyCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[4]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -408,7 +408,7 @@ func (x *ApplyCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyCommand.ProtoReflect.Descriptor instead.
 func (*ApplyCommand) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{4}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ApplyCommand) GetRepo() string {
@@ -450,7 +450,7 @@ type ApplyResult struct {
 
 func (x *ApplyResult) Reset() {
 	*x = ApplyResult{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[5]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +462,7 @@ func (x *ApplyResult) String() string {
 func (*ApplyResult) ProtoMessage() {}
 
 func (x *ApplyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[5]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +475,7 @@ func (x *ApplyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyResult.ProtoReflect.Descriptor instead.
 func (*ApplyResult) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{5}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ApplyResult) GetSuccess() bool {
@@ -509,7 +509,7 @@ type UnlockCommand struct {
 
 func (x *UnlockCommand) Reset() {
 	*x = UnlockCommand{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[6]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -521,7 +521,7 @@ func (x *UnlockCommand) String() string {
 func (*UnlockCommand) ProtoMessage() {}
 
 func (x *UnlockCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[6]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -534,7 +534,7 @@ func (x *UnlockCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnlockCommand.ProtoReflect.Descriptor instead.
 func (*UnlockCommand) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{6}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UnlockCommand) GetRepo() string {
@@ -562,7 +562,7 @@ type UnlockResult struct {
 
 func (x *UnlockResult) Reset() {
 	*x = UnlockResult{}
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[7]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -574,7 +574,7 @@ func (x *UnlockResult) String() string {
 func (*UnlockResult) ProtoMessage() {}
 
 func (x *UnlockResult) ProtoReflect() protoreflect.Message {
-	mi := &file_terraplane_v1_envelope_proto_msgTypes[7]
+	mi := &file_terraplane_v1_terraform_envelope_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -587,7 +587,7 @@ func (x *UnlockResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnlockResult.ProtoReflect.Descriptor instead.
 func (*UnlockResult) Descriptor() ([]byte, []int) {
-	return file_terraplane_v1_envelope_proto_rawDescGZIP(), []int{7}
+	return file_terraplane_v1_terraform_envelope_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UnlockResult) GetSuccess() bool {
@@ -611,12 +611,12 @@ func (x *UnlockResult) GetError() string {
 	return ""
 }
 
-var File_terraplane_v1_envelope_proto protoreflect.FileDescriptor
+var File_terraplane_v1_terraform_envelope_proto protoreflect.FileDescriptor
 
-const file_terraplane_v1_envelope_proto_rawDesc = "" +
+const file_terraplane_v1_terraform_envelope_proto_rawDesc = "" +
 	"\n" +
-	"\x1cterraplane/v1/envelope.proto\x12\rterraplane.v1\"\xb6\x03\n" +
-	"\bEnvelope\x12\x15\n" +
+	"&terraplane/v1/terraform_envelope.proto\x12\rterraplane.v1\"\xbf\x03\n" +
+	"\x11TerraformEnvelope\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x120\n" +
 	"\x04plan\x18\x02 \x01(\v2\x1a.terraplane.v1.PlanCommandH\x00R\x04plan\x12&\n" +
 	"\x03ack\x18\x03 \x01(\v2\x12.terraplane.v1.AckH\x00R\x03ack\x12<\n" +
@@ -661,36 +661,36 @@ const file_terraplane_v1_envelope_proto_rawDesc = "" +
 	"\x05error\x18\x03 \x01(\tR\x05errorB>Z<github.com/xyzjace/terraplane/pkg/terraplane/v1;terraplanev1b\x06proto3"
 
 var (
-	file_terraplane_v1_envelope_proto_rawDescOnce sync.Once
-	file_terraplane_v1_envelope_proto_rawDescData []byte
+	file_terraplane_v1_terraform_envelope_proto_rawDescOnce sync.Once
+	file_terraplane_v1_terraform_envelope_proto_rawDescData []byte
 )
 
-func file_terraplane_v1_envelope_proto_rawDescGZIP() []byte {
-	file_terraplane_v1_envelope_proto_rawDescOnce.Do(func() {
-		file_terraplane_v1_envelope_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_terraplane_v1_envelope_proto_rawDesc), len(file_terraplane_v1_envelope_proto_rawDesc)))
+func file_terraplane_v1_terraform_envelope_proto_rawDescGZIP() []byte {
+	file_terraplane_v1_terraform_envelope_proto_rawDescOnce.Do(func() {
+		file_terraplane_v1_terraform_envelope_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_terraplane_v1_terraform_envelope_proto_rawDesc), len(file_terraplane_v1_terraform_envelope_proto_rawDesc)))
 	})
-	return file_terraplane_v1_envelope_proto_rawDescData
+	return file_terraplane_v1_terraform_envelope_proto_rawDescData
 }
 
-var file_terraplane_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
-var file_terraplane_v1_envelope_proto_goTypes = []any{
-	(*Envelope)(nil),      // 0: terraplane.v1.Envelope
-	(*PlanCommand)(nil),   // 1: terraplane.v1.PlanCommand
-	(*Ack)(nil),           // 2: terraplane.v1.Ack
-	(*PlanResult)(nil),    // 3: terraplane.v1.PlanResult
-	(*ApplyCommand)(nil),  // 4: terraplane.v1.ApplyCommand
-	(*ApplyResult)(nil),   // 5: terraplane.v1.ApplyResult
-	(*UnlockCommand)(nil), // 6: terraplane.v1.UnlockCommand
-	(*UnlockResult)(nil),  // 7: terraplane.v1.UnlockResult
+var file_terraplane_v1_terraform_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_terraplane_v1_terraform_envelope_proto_goTypes = []any{
+	(*TerraformEnvelope)(nil), // 0: terraplane.v1.TerraformEnvelope
+	(*PlanCommand)(nil),       // 1: terraplane.v1.PlanCommand
+	(*Ack)(nil),               // 2: terraplane.v1.Ack
+	(*PlanResult)(nil),        // 3: terraplane.v1.PlanResult
+	(*ApplyCommand)(nil),      // 4: terraplane.v1.ApplyCommand
+	(*ApplyResult)(nil),       // 5: terraplane.v1.ApplyResult
+	(*UnlockCommand)(nil),     // 6: terraplane.v1.UnlockCommand
+	(*UnlockResult)(nil),      // 7: terraplane.v1.UnlockResult
 }
-var file_terraplane_v1_envelope_proto_depIdxs = []int32{
-	1, // 0: terraplane.v1.Envelope.plan:type_name -> terraplane.v1.PlanCommand
-	2, // 1: terraplane.v1.Envelope.ack:type_name -> terraplane.v1.Ack
-	3, // 2: terraplane.v1.Envelope.plan_result:type_name -> terraplane.v1.PlanResult
-	4, // 3: terraplane.v1.Envelope.apply:type_name -> terraplane.v1.ApplyCommand
-	5, // 4: terraplane.v1.Envelope.apply_result:type_name -> terraplane.v1.ApplyResult
-	6, // 5: terraplane.v1.Envelope.unlock:type_name -> terraplane.v1.UnlockCommand
-	7, // 6: terraplane.v1.Envelope.unlock_result:type_name -> terraplane.v1.UnlockResult
+var file_terraplane_v1_terraform_envelope_proto_depIdxs = []int32{
+	1, // 0: terraplane.v1.TerraformEnvelope.plan:type_name -> terraplane.v1.PlanCommand
+	2, // 1: terraplane.v1.TerraformEnvelope.ack:type_name -> terraplane.v1.Ack
+	3, // 2: terraplane.v1.TerraformEnvelope.plan_result:type_name -> terraplane.v1.PlanResult
+	4, // 3: terraplane.v1.TerraformEnvelope.apply:type_name -> terraplane.v1.ApplyCommand
+	5, // 4: terraplane.v1.TerraformEnvelope.apply_result:type_name -> terraplane.v1.ApplyResult
+	6, // 5: terraplane.v1.TerraformEnvelope.unlock:type_name -> terraplane.v1.UnlockCommand
+	7, // 6: terraplane.v1.TerraformEnvelope.unlock_result:type_name -> terraplane.v1.UnlockResult
 	7, // [7:7] is the sub-list for method output_type
 	7, // [7:7] is the sub-list for method input_type
 	7, // [7:7] is the sub-list for extension type_name
@@ -698,35 +698,35 @@ var file_terraplane_v1_envelope_proto_depIdxs = []int32{
 	0, // [0:7] is the sub-list for field type_name
 }
 
-func init() { file_terraplane_v1_envelope_proto_init() }
-func file_terraplane_v1_envelope_proto_init() {
-	if File_terraplane_v1_envelope_proto != nil {
+func init() { file_terraplane_v1_terraform_envelope_proto_init() }
+func file_terraplane_v1_terraform_envelope_proto_init() {
+	if File_terraplane_v1_terraform_envelope_proto != nil {
 		return
 	}
-	file_terraplane_v1_envelope_proto_msgTypes[0].OneofWrappers = []any{
-		(*Envelope_Plan)(nil),
-		(*Envelope_Ack)(nil),
-		(*Envelope_PlanResult)(nil),
-		(*Envelope_Apply)(nil),
-		(*Envelope_ApplyResult)(nil),
-		(*Envelope_Unlock)(nil),
-		(*Envelope_UnlockResult)(nil),
+	file_terraplane_v1_terraform_envelope_proto_msgTypes[0].OneofWrappers = []any{
+		(*TerraformEnvelope_Plan)(nil),
+		(*TerraformEnvelope_Ack)(nil),
+		(*TerraformEnvelope_PlanResult)(nil),
+		(*TerraformEnvelope_Apply)(nil),
+		(*TerraformEnvelope_ApplyResult)(nil),
+		(*TerraformEnvelope_Unlock)(nil),
+		(*TerraformEnvelope_UnlockResult)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_terraplane_v1_envelope_proto_rawDesc), len(file_terraplane_v1_envelope_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_terraplane_v1_terraform_envelope_proto_rawDesc), len(file_terraplane_v1_terraform_envelope_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_terraplane_v1_envelope_proto_goTypes,
-		DependencyIndexes: file_terraplane_v1_envelope_proto_depIdxs,
-		MessageInfos:      file_terraplane_v1_envelope_proto_msgTypes,
+		GoTypes:           file_terraplane_v1_terraform_envelope_proto_goTypes,
+		DependencyIndexes: file_terraplane_v1_terraform_envelope_proto_depIdxs,
+		MessageInfos:      file_terraplane_v1_terraform_envelope_proto_msgTypes,
 	}.Build()
-	File_terraplane_v1_envelope_proto = out.File
-	file_terraplane_v1_envelope_proto_goTypes = nil
-	file_terraplane_v1_envelope_proto_depIdxs = nil
+	File_terraplane_v1_terraform_envelope_proto = out.File
+	file_terraplane_v1_terraform_envelope_proto_goTypes = nil
+	file_terraplane_v1_terraform_envelope_proto_depIdxs = nil
 }

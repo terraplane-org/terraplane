@@ -6,8 +6,10 @@ import (
 	"fmt"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/xyzjace/terraplane/pkg/log"
+	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
+	"github.com/xyzjace/terraplane/pkg/wsproto"
+	"google.golang.org/protobuf/proto"
 )
 
 type Session struct {
@@ -25,22 +27,27 @@ func NewSession(id string, conn *websocket.Conn, logger log.Logger) *Session {
 }
 
 func (s *Session) Hello(ctx context.Context) error {
-	return wsjson.Write(ctx, s.conn, s.id)
+	return wsproto.Write(ctx, s.conn, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Hello{
+			Hello: &terraplanev1.Hello{
+				AgentId: s.id,
+			},
+		},
+	})
 }
 
-func (s *Session) Read(ctx context.Context) (string, error) {
-	var msg string
-	err := wsjson.Read(ctx, s.conn, &msg)
-	return msg, err
+func (s *Session) Read(ctx context.Context, msg proto.Message) error {
+	return wsproto.Read(ctx, s.conn, msg)
 }
 
-func (s *Session) Write(ctx context.Context, msg any) error {
-	return wsjson.Write(ctx, s.conn, msg)
+func (s *Session) Write(ctx context.Context, msg proto.Message) error {
+	return wsproto.Write(ctx, s.conn, msg)
 }
 
 func (s *Session) Run(ctx context.Context) error {
 	for {
-		msg, err := s.Read(ctx)
+		var msg terraplanev1.TerraformEnvelope
+		err := s.Read(ctx, &msg)
 		if err != nil {
 			if isExpectedDisconnect(err) || ctx.Err() != nil {
 				return nil
@@ -48,7 +55,7 @@ func (s *Session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
-		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg)
+		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
 }
 
