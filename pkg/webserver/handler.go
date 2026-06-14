@@ -28,7 +28,7 @@ func NewHandler(logger log.Logger, scmProvider scm.Provider) http.Handler {
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SCM webhook handler called")
-	err := h.scmProvider.ParseWebhook(r)
+	_, err := h.scmProvider.ParseWebhook(r)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
