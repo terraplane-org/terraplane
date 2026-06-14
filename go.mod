@@ -3,6 +3,7 @@ module github.com/xyzjace/terraplane
 go 1.25.2
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/goforj/wire v1.2.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
