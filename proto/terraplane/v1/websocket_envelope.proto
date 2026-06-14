@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package terraplane.v1;
+
+option go_package = "github.com/xyzjace/terraplane/pkg/terraplane/v1;terraplanev1";
+
+message WebsocketEnvelope {
+  oneof payload {
+    Hello hello = 1;
+    Goodbye goodbye = 2;
+  }
+}
+message Hello {
+  string agent_id = 1;
+}
+message Goodbye {
+  string agent_id = 1;
+}

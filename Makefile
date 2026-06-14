@@ -32,8 +32,15 @@ generate:
 
 run-orchestrator: build
 		$(BIN_TERRAPLANE) orchestrator
+
 run-agent: build
 		$(BIN_TERRAPLANE) agent
+
+protoc-gen:
+	protoc -I=./proto \
+	  --go_out=. \
+	  --go_opt=module=github.com/xyzjace/terraplane \
+	  ./proto/terraplane/v1/*.proto
 
 # Cross compilation
 build-linux:

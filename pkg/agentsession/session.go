@@ -6,8 +6,9 @@ import (
 	"fmt"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/xyzjace/terraplane/pkg/log"
+	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
+	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
 
 type Session interface {
@@ -35,8 +36,8 @@ func (s *session) Run(ctx context.Context) error {
 	s.logger.Info("Agent session started", "agent_id", s.id)
 
 	for {
-		var msg string
-		err := wsjson.Read(ctx, s.conn, &msg)
+		var msg terraplanev1.TerraformEnvelope
+		err := wsproto.Read(ctx, s.conn, &msg)
 		if err != nil {
 			if isExpectedDisconnect(err) || ctx.Err() != nil {
 				s.logger.Info("Agent session closed", "agent_id", s.id)
@@ -45,7 +46,7 @@ func (s *session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
-		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg)
+		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
 }
 

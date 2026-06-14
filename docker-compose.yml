@@ -11,10 +11,24 @@ services:
     env_file:
       - .env
 
-  agent:
+  agent-dev:
     image: terraplane
     command: ["agent"]
     depends_on:
       - orchestrator
     env_file:
       - .env
+    environment:
+      AGENT_ID: "agent-dev"
+      AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"
+      
+  agent-prod:
+    image: terraplane
+    command: ["agent"]
+    depends_on:
+      - orchestrator
+    env_file:
+      - .env
+    environment:
+      AGENT_ID: "agent-prod"      
+      AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"

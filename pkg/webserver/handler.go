@@ -2,14 +2,16 @@ package webserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
+	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
+	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
 
 const agentHelloTimeout = 10 * time.Second
@@ -64,12 +66,21 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	helloCtx, cancel := context.WithTimeout(r.Context(), agentHelloTimeout)
 	defer cancel()
 
-	var agentID string
-	if err := wsjson.Read(helloCtx, conn, &agentID); err != nil {
+	var hello terraplanev1.WebsocketEnvelope
+	if err := wsproto.Read(helloCtx, conn, &hello); err != nil {
 		h.logger.Error("Failed to read agent hello", "error", err)
 		_ = conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
 		return
 	}
+
+	agentID, err := agentIDFromHello(&hello)
+	if err != nil {
+		h.logger.Error("Invalid agent hello", "error", err)
+		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
+
+	h.logger.Info("Received agent hello", "agent_id", agentID)
 
 	session := h.sessionFactory.New(agentID, conn)
 
@@ -82,6 +93,17 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if err := session.Run(r.Context()); err != nil {
 		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
 	}
+}
+
+func agentIDFromHello(hello *terraplanev1.WebsocketEnvelope) (string, error) {
+	helloMsg := hello.GetHello()
+	if helloMsg == nil {
+		return "", fmt.Errorf("expected hello payload")
+	}
+	if helloMsg.GetAgentId() == "" {
+		return "", fmt.Errorf("agent_id is required")
+	}
+	return helloMsg.GetAgentId(), nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
