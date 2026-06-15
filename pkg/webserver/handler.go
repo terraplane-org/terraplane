@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	scmevents "github.com/xyzjace/terraplane/pkg/scm/events"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
@@ -70,6 +71,11 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 func (h *handler) handleSCMEvent(event scmevents.Event) {
 	switch e := event.(type) {
 	case scmevents.Plan:
+		planService := services.NewPlanService(h.logger, h.sessionRegistry)
+		if err := planService.RunPlan(e.RepoSlug, e.PRNumber, e.CommitSHA, e.RawComment); err != nil {
+			h.logger.Error("Failed to run plan", "error", err)
+			return
+		}
 		h.logger.Info("Handling plan event", "repo", e.RepoSlug, "pr", e.PRNumber, "user", e.TriggerUser)
 	case scmevents.Apply:
 		h.logger.Info("Handling apply event", "repo", e.RepoSlug, "pr", e.PRNumber, "user", e.TriggerUser)

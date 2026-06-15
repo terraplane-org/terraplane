@@ -196,8 +196,7 @@ type PlanCommand struct {
 	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	PrNumber      int32                  `protobuf:"varint,2,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	CommitHash    string                 `protobuf:"bytes,3,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
-	Branch        string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
-	PlanFlags     string                 `protobuf:"bytes,5,opt,name=plan_flags,json=planFlags,proto3" json:"plan_flags,omitempty"`
+	PlanFlags     string                 `protobuf:"bytes,4,opt,name=plan_flags,json=planFlags,proto3" json:"plan_flags,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -249,13 +248,6 @@ func (x *PlanCommand) GetPrNumber() int32 {
 func (x *PlanCommand) GetCommitHash() string {
 	if x != nil {
 		return x.CommitHash
-	}
-	return ""
-}
-
-func (x *PlanCommand) GetBranch() string {
-	if x != nil {
-		return x.Branch
 	}
 	return ""
 }
@@ -626,15 +618,14 @@ const file_terraplane_v1_terraform_envelope_proto_rawDesc = "" +
 	"\fapply_result\x18\x06 \x01(\v2\x1a.terraplane.v1.ApplyResultH\x00R\vapplyResult\x126\n" +
 	"\x06unlock\x18\a \x01(\v2\x1c.terraplane.v1.UnlockCommandH\x00R\x06unlock\x12B\n" +
 	"\runlock_result\x18\b \x01(\v2\x1b.terraplane.v1.UnlockResultH\x00R\funlockResultB\t\n" +
-	"\apayload\"\x96\x01\n" +
+	"\apayload\"~\n" +
 	"\vPlanCommand\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x1b\n" +
 	"\tpr_number\x18\x02 \x01(\x05R\bprNumber\x12\x1f\n" +
 	"\vcommit_hash\x18\x03 \x01(\tR\n" +
-	"commitHash\x12\x16\n" +
-	"\x06branch\x18\x04 \x01(\tR\x06branch\x12\x1d\n" +
+	"commitHash\x12\x1d\n" +
 	"\n" +
-	"plan_flags\x18\x05 \x01(\tR\tplanFlags\"\x1f\n" +
+	"plan_flags\x18\x04 \x01(\tR\tplanFlags\"\x1f\n" +
 	"\x03Ack\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"T\n" +
 	"\n" +
