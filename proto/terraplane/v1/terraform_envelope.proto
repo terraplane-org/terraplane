@@ -20,8 +20,7 @@ message PlanCommand {
   string repo = 1;
   int32 pr_number = 2;
   string commit_hash = 3;
-  string branch = 4;
-  string plan_flags = 5;
+  string plan_flags = 4;
 }
 message Ack {
   string message = 1;

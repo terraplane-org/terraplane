@@ -10,6 +10,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
+	scmevents "github.com/xyzjace/terraplane/pkg/scm/events"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
@@ -47,13 +48,40 @@ func NewHandler(
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SCM webhook handler called")
-	_, err := h.scmProvider.ParseWebhook(r)
+
+	webhook, err := scm.WebhookFromRequest(r)
+	if err != nil {
+		h.logger.Error("Failed to read SCM webhook body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to read SCM webhook")
+		return
+	}
+
+	event, err := h.scmProvider.ParseWebhook(r.Context(), webhook)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to parse SCM webhook")
 		return
 	}
+
+	h.handleSCMEvent(event)
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
+}
+
+func (h *handler) handleSCMEvent(event scmevents.Event) {
+	switch e := event.(type) {
+	case scmevents.Plan:
+		h.logger.Info("Handling plan event", "repo", e.RepoSlug, "pr", e.PRNumber, "user", e.TriggerUser)
+	case scmevents.Apply:
+		h.logger.Info("Handling apply event", "repo", e.RepoSlug, "pr", e.PRNumber, "user", e.TriggerUser)
+	case scmevents.Unlock:
+		h.logger.Info("Handling unlock event", "repo", e.RepoSlug, "pr", e.PRNumber, "user", e.TriggerUser)
+	case scmevents.Ignored:
+		h.logger.Debug("Ignoring SCM webhook event")
+	case scmevents.Unknown:
+		h.logger.Debug("Unknown SCM webhook event", "reason", e.Reason)
+	default:
+		h.logger.Warn("Unhandled SCM event type", "kind", event.Kind())
+	}
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
