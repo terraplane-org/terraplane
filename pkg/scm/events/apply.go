@@ -8,5 +8,5 @@ type Apply struct {
 	RawComment  string
 }
 
-func (Apply) isEvent() {}
+func (Apply) isEvent()   {}
 func (Apply) Kind() Kind { return KindApply }

@@ -8,5 +8,5 @@ type Plan struct {
 	RawComment  string
 }
 
-func (Plan) isEvent() {}
+func (Plan) isEvent()   {}
 func (Plan) Kind() Kind { return KindPlan }

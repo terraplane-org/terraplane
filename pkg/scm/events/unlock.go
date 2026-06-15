@@ -8,5 +8,5 @@ type Unlock struct {
 	RawComment  string
 }
 
-func (Unlock) isEvent() {}
+func (Unlock) isEvent()   {}
 func (Unlock) Kind() Kind { return KindUnlock }
