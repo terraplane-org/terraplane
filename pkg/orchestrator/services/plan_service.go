@@ -25,7 +25,17 @@ type planService struct {
 func (s *planService) RunPlan(repo string, prNumber int, commitHash string, rawPlan string) error {
 	ctx := context.Background()
 
-	file, err := s.scmProvider.GetFile(ctx, repo, "terraplane.yaml")
+	ref := commitHash
+	if ref == "" {
+		pr, err := s.scmProvider.GetPullRequest(ctx, repo, prNumber)
+		if err != nil {
+			return fmt.Errorf("fetch pull request: %w", err)
+		}
+		ref = pr.HeadSHA
+		commitHash = pr.HeadSHA
+	}
+
+	file, err := s.scmProvider.GetFile(ctx, repo, "terraplane.yaml", ref)
 	if err != nil {
 		return fmt.Errorf("fetch repository config: %w", err)
 	}
