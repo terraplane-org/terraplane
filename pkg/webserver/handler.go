@@ -71,7 +71,7 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 func (h *handler) handleSCMEvent(event scmevents.Event) {
 	switch e := event.(type) {
 	case scmevents.Plan:
-		planService := services.NewPlanService(h.logger, h.sessionRegistry)
+		planService := services.NewPlanService(h.logger, h.sessionRegistry, h.scmProvider)
 		if err := planService.RunPlan(e.RepoSlug, e.PRNumber, e.CommitSHA, e.RawComment); err != nil {
 			h.logger.Error("Failed to run plan", "error", err)
 			return

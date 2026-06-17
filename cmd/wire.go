@@ -20,7 +20,7 @@ var observableSet = wire.NewSet(logging.NewLogger)
 
 func InitializeOrchestrator() (orchestrator.Manager, error) {
 
-	wire.Build(observableSet, orchestrator.NewManager, config.NewConfig, webserver.NewServer, webserver.NewHandler, github.NewProvider, agentsession.NewRegistry, agentsession.NewFactory)
+	wire.Build(observableSet, orchestrator.NewManager, config.NewConfig, webserver.NewServer, webserver.NewHandler, github.NewProvider, agentsession.NewRegistry, agentsession.NewFactory, github.NewClient)
 	return nil, nil
 }
 

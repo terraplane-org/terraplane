@@ -20,6 +20,23 @@ const signaturePrefix = "sha256="
 type provider struct {
 	logger                log.Logger
 	github_webhook_secret string
+	github_access_token   string
+
+	githubClient Client
+}
+
+// CreatePRComment implements scm.Provider.
+func (p *provider) CreatePRComment(ctx context.Context, repo string, prNumber int, comment string) error {
+	panic("unimplemented")
+}
+
+func (p *provider) GetFile(ctx context.Context, repo string, path string) (string, error) {
+	file, err := p.githubClient.GetFile(ctx, repo, path)
+	if err != nil {
+		return "", err
+	}
+	p.logger.Info("File", "file", file)
+	return file, nil
 }
 
 func (p *provider) Name() string {
@@ -124,6 +141,6 @@ func (p *provider) verifyWebhookSignature(webhook scm.Webhook) error {
 	return nil
 }
 
-func NewProvider(logger log.Logger, config *config.Config) scm.Provider {
-	return &provider{logger: logger, github_webhook_secret: config.OrchestratorGithubWebhookSecret}
+func NewProvider(logger log.Logger, config *config.Config, client Client) scm.Provider {
+	return &provider{logger: logger, github_webhook_secret: config.OrchestratorGithubWebhookSecret, githubClient: client}
 }

@@ -25,7 +25,8 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		return nil, err
 	}
 	logger := logging.NewLogger(configConfig)
-	provider := github.NewProvider(logger, configConfig)
+	client := github.NewClient(configConfig)
+	provider := github.NewProvider(logger, configConfig, client)
 	registry := agentsession.NewRegistry(logger)
 	factory := agentsession.NewFactory(logger, registry)
 	handler := webserver.NewHandler(logger, provider, registry, factory)
