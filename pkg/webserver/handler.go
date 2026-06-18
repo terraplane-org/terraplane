@@ -8,6 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
@@ -47,13 +48,70 @@ func NewHandler(
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SCM webhook handler called")
-	_, err := h.scmProvider.ParseWebhook(r)
+
+	webhooks, err := h.scmProvider.ParseWebhook(r)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to parse SCM webhook")
 		return
 	}
+	if len(webhooks) == 0 {
+		h.logger.Debug("No actionable SCM webhook events found")
+		writeResponse(w, http.StatusOK, "No actionable event found")
+		return
+	}
+
+	for _, webhook := range webhooks {
+		cmd := command.ParseWebhook(&webhook)
+		if cmd.Kind == command.KindUnknown {
+			h.logger.Debug(
+				"Ignoring pull request comment that is not a terraplane command",
+				"repo", webhook.RepositorySlug,
+				"pr", webhook.PRNumber,
+				"user", webhook.TriggeringUser,
+				"comment", webhook.FullCommand,
+			)
+			continue
+		}
+		h.handleCommand(cmd)
+	}
+
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
+}
+
+func (h *handler) handleCommand(cmd command.Command) {
+	switch cmd.Kind {
+	case command.KindPlan:
+		h.logger.Info(
+			"Received terraplane plan command",
+			"repo", cmd.Plan.Repo,
+			"pr", cmd.Plan.PRNumber,
+			"user", cmd.Plan.TriggerUser,
+			"commit", cmd.Plan.CommitSHA,
+			"stacks", cmd.Plan.Stacks,
+			"comment", cmd.Plan.RawComment,
+		)
+	case command.KindApply:
+		h.logger.Info(
+			"Received terraplane apply command",
+			"repo", cmd.Apply.Repo,
+			"pr", cmd.Apply.PRNumber,
+			"user", cmd.Apply.TriggerUser,
+			"commit", cmd.Apply.CommitSHA,
+			"comment", cmd.Apply.RawComment,
+		)
+	case command.KindUnlock:
+		h.logger.Info(
+			"Received terraplane unlock command",
+			"repo", cmd.Unlock.Repo,
+			"pr", cmd.Unlock.PRNumber,
+			"user", cmd.Unlock.TriggerUser,
+			"commit", cmd.Unlock.CommitSHA,
+			"comment", cmd.Unlock.RawComment,
+		)
+	default:
+		h.logger.Warn("Received terraplane command with unhandled kind", "kind", cmd.Kind)
+	}
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
