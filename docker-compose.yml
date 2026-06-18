@@ -18,10 +18,15 @@ services:
       - orchestrator
     env_file:
       - .env
+    volumes:
+      - ${AGENT_SCM_SSH_KEY_PATH:?Set AGENT_SCM_SSH_KEY_PATH in .env to your deploy key path}:/run/secrets/git_ssh_key:ro
+      - agent-dev-work:/var/terraplane/work
     environment:
       AGENT_ID: "agent-dev"
       AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"
-      
+      AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
+      AGENT_WORK_DIR: /var/terraplane/work
+
   agent-prod:
     image: terraplane
     command: ["agent"]
@@ -29,6 +34,15 @@ services:
       - orchestrator
     env_file:
       - .env
+    volumes:
+      - ${AGENT_SCM_SSH_KEY_PATH:?Set AGENT_SCM_SSH_KEY_PATH in .env to your deploy key path}:/run/secrets/git_ssh_key:ro
+      - agent-prod-work:/var/terraplane/work
     environment:
-      AGENT_ID: "agent-prod"      
+      AGENT_ID: "agent-prod"
       AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"
+      AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
+      AGENT_WORK_DIR: /var/terraplane/work
+
+volumes:
+  agent-dev-work:
+  agent-prod-work:

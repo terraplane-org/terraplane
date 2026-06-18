@@ -10,12 +10,19 @@ import (
 type WriteFunc func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error
 
 type Handlers struct {
-	logger log.Logger
-	write  WriteFunc
+	logger     log.Logger
+	write      WriteFunc
+	sshKeyPath string
+	workDir    string
 }
 
-func New(logger log.Logger, write WriteFunc) *Handlers {
-	return &Handlers{logger: logger, write: write}
+func New(logger log.Logger, write WriteFunc, sshKeyPath, workDir string) *Handlers {
+	return &Handlers{
+		logger:     logger,
+		write:      write,
+		sshKeyPath: sshKeyPath,
+		workDir:    workDir,
+	}
 }
 
 func (h *Handlers) accept(ctx context.Context, jobID, ackMessage string, run func(context.Context)) error {

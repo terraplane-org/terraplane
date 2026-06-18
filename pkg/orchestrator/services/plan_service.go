@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/xyzjace/terraplane/pkg/agentsession"
@@ -95,8 +97,14 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 			continue
 		}
 
+		jobID, err := newJobID()
+		if err != nil {
+			return fmt.Errorf("failed to generate job ID for stack %q in repository %s: %w", stack.Name, plan.Repo, err)
+		}
+
 		s.logger.Info(
 			"Dispatching plan command to agent",
+			"job_id", jobID,
 			"repo", plan.Repo,
 			"pr", plan.PRNumber,
 			"stack", stack.Name,
@@ -106,6 +114,7 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 		)
 
 		if err := agent.Write(ctx, &terraplanev1.TerraformEnvelope{
+			JobId: jobID,
 			Payload: &terraplanev1.TerraformEnvelope_Plan{
 				Plan: &terraplanev1.PlanCommand{
 					Repo:       plan.Repo,
@@ -142,4 +151,12 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 	)
 
 	return nil
+}
+
+func newJobID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }

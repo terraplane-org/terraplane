@@ -18,6 +18,8 @@ type manager struct {
 	logger          log.Logger
 	orchestratorURL string
 	id              string
+	sshKeyPath      string
+	workDir         string
 }
 
 func (o *manager) Start(ctx context.Context) error {
@@ -33,7 +35,7 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
 
-	session := NewSession(o.id, conn, o.logger)
+	session := NewSession(o.id, conn, o.logger, o.sshKeyPath, o.workDir)
 
 	if err := session.Hello(ctx); err != nil {
 		session.CloseNow()
@@ -76,6 +78,8 @@ func NewManager(config *config.Config, logger log.Logger) Manager {
 	return &manager{
 		id:              config.AgentID,
 		orchestratorURL: config.AgentOrchestratorURL,
+		sshKeyPath:      config.AgentSCMSSHKeyPath,
+		workDir:         config.AgentWorkDir,
 		logger:          logger,
 	}
 }

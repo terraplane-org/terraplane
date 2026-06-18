@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
 
@@ -19,7 +20,30 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		"plan_flags", cmd.GetPlanFlags(),
 	)
 
-	// TODO: clone repo, run terraform plan, capture output
+	workspaceManager := workspace.NewManager(h.logger, h.sshKeyPath, h.workDir)
+	workspaceDir, err := workspaceManager.ProvisionWorkspace(ctx, cmd.GetRepo(), cmd.GetCommitHash())
+	if err != nil {
+		h.logger.Error(
+			"Failed to provision workspace for terraplane plan",
+			"repo", cmd.GetRepo(),
+			"pr", cmd.GetPrNumber(),
+			"error", err,
+		)
+		return
+	}
+	defer func() {
+		if err := workspaceManager.RemoveWorkspace(ctx); err != nil {
+			h.logger.Error(
+				"Failed to remove workspace for terraplane plan",
+				"repo", cmd.GetRepo(),
+				"pr", cmd.GetPrNumber(),
+				"error", err,
+			)
+		}
+	}()
+
+	// TODO: run terraform plan in workspaceDir/cmd.GetDir()
+	_ = workspaceDir
 	result := &terraplanev1.PlanResult{
 		Success: true,
 		Output:  fmt.Sprintf("stub plan for stack %q in %q", cmd.GetStackName(), cmd.GetDir()),
