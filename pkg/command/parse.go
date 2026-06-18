@@ -16,7 +16,7 @@ func ParseWebhook(w *scm.Webhook) Command {
 	}
 	switch verb(w.FullCommand) {
 	case KindPlan:
-		return Command{Kind: KindPlan, Plan: PlanCommand{base: b, Stacks: stacks(w.FullCommand)}}
+		return Command{Kind: KindPlan, Plan: PlanCommand{base: b, Stacks: stacks(w.FullCommand), PlanFlags: planFlags(w.FullCommand)}}
 	case KindApply:
 		return Command{Kind: KindApply, Apply: ApplyCommand{base: b}}
 	case KindUnlock:
@@ -67,6 +67,30 @@ func stacks(body string) []string {
 		}
 	}
 	return out
+}
+
+func planFlags(body string) string {
+	fields := strings.Fields(firstLine(body))
+	start := 0
+	if len(fields) >= 2 && strings.EqualFold(fields[0], "terraplane") && strings.EqualFold(fields[1], "plan") {
+		start = 2
+	}
+
+	var flags []string
+	for i := start; i < len(fields); i++ {
+		switch fields[i] {
+		case "-s", "-stack":
+			i++
+		case "--":
+			return strings.Join(fields[i+1:], " ")
+		default:
+			if strings.HasPrefix(fields[i], "-s=") || strings.HasPrefix(fields[i], "-stack=") {
+				continue
+			}
+			flags = append(flags, fields[i])
+		}
+	}
+	return strings.Join(flags, " ")
 }
 
 func firstLine(body string) string {

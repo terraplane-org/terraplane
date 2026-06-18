@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -22,6 +23,7 @@ type session struct {
 	conn     *websocket.Conn
 	logger   log.Logger
 	registry Registry
+	writeMu  sync.Mutex
 }
 
 func (s *session) ID() string {
@@ -52,6 +54,8 @@ func (s *session) Run(ctx context.Context) error {
 }
 
 func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return wsproto.Write(ctx, s.conn, msg)
 }
 

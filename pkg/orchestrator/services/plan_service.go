@@ -13,7 +13,7 @@ import (
 )
 
 type PlanService interface {
-	RunPlan(command command.PlanCommand) error
+	RunPlan(ctx context.Context, plan command.PlanCommand) error
 }
 
 type planService struct {
@@ -30,9 +30,7 @@ func NewPlanService(logger log.Logger, agentRegistry agentsession.Registry, scmP
 	}
 }
 
-func (s *planService) RunPlan(plan command.PlanCommand) error {
-	ctx := context.Background()
-
+func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) error {
 	s.logger.Info(
 		"Starting terraplane plan",
 		"repo", plan.Repo,
@@ -113,7 +111,9 @@ func (s *planService) RunPlan(plan command.PlanCommand) error {
 					Repo:       plan.Repo,
 					PrNumber:   int32(plan.PRNumber),
 					CommitHash: plan.CommitSHA,
-					PlanFlags:  plan.RawComment,
+					PlanFlags:  plan.PlanFlags,
+					StackName:  stack.Name,
+					Dir:        stack.Dir,
 				},
 			},
 		}); err != nil {
