@@ -20,6 +20,7 @@ type Config struct {
 	AgentOrchestratorURL            string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
 	AgentID                         string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath              string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
+	AgentWorkDir                    string        `mapstructure:"AGENT_WORK_DIR"`
 }
 
 func NewConfig() (*Config, error) {
@@ -32,13 +33,11 @@ func NewConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var c Config
-	err = viper.Unmarshal(&c)
-	if err != nil {
+	var cfg Config
+	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
-
-	return &c, nil
+	return &cfg, nil
 }
 
 func configNotFound(err error) bool {
@@ -63,4 +62,5 @@ func init() {
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
+	viper.SetDefault("AGENT_WORK_DIR", "")
 }
