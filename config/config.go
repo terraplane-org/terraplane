@@ -19,6 +19,7 @@ type Config struct {
 	AgentClientShutdownTimer        time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL            string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
 	AgentID                         string        `mapstructure:"AGENT_ID"`
+	AgentSCMSSHKeyPath              string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 }
 
 func NewConfig() (*Config, error) {
@@ -61,4 +62,5 @@ func init() {
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
 	viper.SetDefault("AGENT_ID", "")
+	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 }
