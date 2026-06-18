@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -28,84 +27,62 @@ func (p *provider) Name() string {
 	return "github"
 }
 
-func (p *provider) ParseWebhook(r *http.Request) (scm.Event, error) {
+func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 	if _, err := p.verifyWebhookSignature(r); err != nil {
-		return scm.Unknown, err
+		return nil, err
 	}
 
 	github_event := r.Header.Get("X-GitHub-Event")
 	switch github_event {
 	case "":
-		return p.ParseUnknownWebhook(r)
+		return nil, nil
 	case "ping":
-		return p.ParseIgnoredEvent(r)
+		return nil, nil
 	case "issue_comment": // This is the main event we're interested in for GH comments
 		return p.parseIssueCommentWebhook(r)
 	default:
 		p.logger.Warn("Received unhandled GitHub event: %s", github_event)
-		return scm.Unknown, nil
+		return nil, nil
 	}
 }
 
-func (p *provider) ParseIgnoredEvent(r *http.Request) (scm.Event, error) {
-	return scm.Ignored, nil
-}
-
-func (p *provider) ParsePlanWebhook(r *http.Request) (scm.Event, error) {
-	p.logger.Info("Received plan webhook!")
-	return scm.Plan, nil
-}
-
-func (p *provider) ParseApplyWebhook(r *http.Request) (scm.Event, error) {
-	p.logger.Info("Received apply webhook!")
-	return scm.Apply, nil
-}
-
-func (p *provider) ParseUnknownWebhook(r *http.Request) (scm.Event, error) {
-	return scm.Unknown, nil
-}
-
-func (p *provider) ParseUnlockWebhook(r *http.Request) (scm.Event, error) {
-	p.logger.Info("Received unlock webhook!")
-	return scm.Unlock, nil
-}
-
-func (p *provider) parseIssueCommentWebhook(r *http.Request) (scm.Event, error) {
+func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return scm.Unknown, fmt.Errorf("read request body: %w", err)
+		return nil, fmt.Errorf("read request body: %w", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	var event issueCommentWebhook
-	err = json.Unmarshal(body, &event)
+	var issueCommentWebhook issueCommentWebhook
+	err = json.Unmarshal(body, &issueCommentWebhook)
 	if err != nil {
-		return scm.Unknown, fmt.Errorf("unmarshal issue comment event: %w", err)
+		return nil, fmt.Errorf("unmarshal issue comment event: %w", err)
 	}
 
-	if event.Comment.Body == "" {
-		return scm.Unknown, fmt.Errorf("comment body is empty")
+	if issueCommentWebhook.Comment.Body == "" {
+		return nil, fmt.Errorf("comment body is empty")
 	}
 
-	if event.Action != "created" {
-		return scm.Ignored, nil
+	if issueCommentWebhook.Action != "created" {
+		return nil, nil
 	}
 
-	// TODO: This will require auth checks to ensure the comment author has permissions to trigger actions
-	// TODO: We may want to support configurable prefixes for commands, e.g. "tp plan" instead of "terraplane plan"
-	// TODO: We should identify that the comment is a type we care about, convert it to an internal type and return it so the upstream caller can parse it.
-	// This will prevent every SCM provider from having to implement the same logic.
-	if strings.Contains(event.Comment.Body, "terraplane plan") {
-		return p.ParsePlanWebhook(r)
-	}
-	if strings.Contains(event.Comment.Body, "terraplane apply") {
-		return p.ParseApplyWebhook(r)
-	}
-	if strings.Contains(event.Comment.Body, "terraplane unlock") {
-		return p.ParseUnlockWebhook(r)
+	if issueCommentWebhook.Issue.PullRequest == nil {
+		return nil, nil
 	}
 
-	return scm.Unknown, nil
+	scmWebhook := p.webhookToScmWebhook(issueCommentWebhook)
+
+	return []scm.Webhook{scmWebhook}, nil
+}
+
+func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook) scm.Webhook {
+	var scmWebhook scm.Webhook
+	scmWebhook.RepositorySlug = webhook.Repository.FullName
+	scmWebhook.PRNumber = webhook.Issue.Number
+	scmWebhook.FullCommand = webhook.Comment.Body
+	scmWebhook.TriggeringUser = webhook.Comment.User.Login
+	return scmWebhook
 }
 
 func (p *provider) verifyWebhookSignature(r *http.Request) ([]byte, error) {
