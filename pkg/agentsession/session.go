@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -14,6 +15,7 @@ import (
 type Session interface {
 	ID() string
 	Run(ctx context.Context) error
+	Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error
 }
 
 type session struct {
@@ -21,6 +23,7 @@ type session struct {
 	conn     *websocket.Conn
 	logger   log.Logger
 	registry Registry
+	writeMu  sync.Mutex
 }
 
 func (s *session) ID() string {
@@ -48,6 +51,12 @@ func (s *session) Run(ctx context.Context) error {
 
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
+}
+
+func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return wsproto.Write(ctx, s.conn, msg)
 }
 
 func isExpectedDisconnect(err error) bool {

@@ -21,6 +21,8 @@ message PlanCommand {
   int32 pr_number = 2;
   string commit_hash = 3;
   string plan_flags = 4;
+  string stack_name = 5;
+  string dir = 6;
 }
 message Ack {
   string message = 1;

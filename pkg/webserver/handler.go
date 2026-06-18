@@ -10,6 +10,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -73,13 +74,13 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			)
 			continue
 		}
-		h.handleCommand(cmd)
+		h.handleCommand(r.Context(), cmd)
 	}
 
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
 }
 
-func (h *handler) handleCommand(cmd command.Command) {
+func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 	switch cmd.Kind {
 	case command.KindPlan:
 		h.logger.Info(
@@ -89,8 +90,21 @@ func (h *handler) handleCommand(cmd command.Command) {
 			"user", cmd.Plan.TriggerUser,
 			"commit", cmd.Plan.CommitSHA,
 			"stacks", cmd.Plan.Stacks,
+			"plan_flags", cmd.Plan.PlanFlags,
 			"comment", cmd.Plan.RawComment,
 		)
+		plan := cmd.Plan
+		planService := services.NewPlanService(h.logger, h.sessionRegistry, h.scmProvider)
+		go func() {
+			if err := planService.RunPlan(context.WithoutCancel(ctx), plan); err != nil {
+				h.logger.Error(
+					"Failed to run terraplane plan",
+					"repo", plan.Repo,
+					"pr", plan.PRNumber,
+					"error", err,
+				)
+			}
+		}()
 	case command.KindApply:
 		h.logger.Info(
 			"Received terraplane apply command",

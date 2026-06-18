@@ -196,8 +196,9 @@ type PlanCommand struct {
 	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	PrNumber      int32                  `protobuf:"varint,2,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	CommitHash    string                 `protobuf:"bytes,3,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
-	Branch        string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
-	PlanFlags     string                 `protobuf:"bytes,5,opt,name=plan_flags,json=planFlags,proto3" json:"plan_flags,omitempty"`
+	PlanFlags     string                 `protobuf:"bytes,4,opt,name=plan_flags,json=planFlags,proto3" json:"plan_flags,omitempty"`
+	StackName     string                 `protobuf:"bytes,5,opt,name=stack_name,json=stackName,proto3" json:"stack_name,omitempty"`
+	Dir           string                 `protobuf:"bytes,6,opt,name=dir,proto3" json:"dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -253,16 +254,23 @@ func (x *PlanCommand) GetCommitHash() string {
 	return ""
 }
 
-func (x *PlanCommand) GetBranch() string {
+func (x *PlanCommand) GetPlanFlags() string {
 	if x != nil {
-		return x.Branch
+		return x.PlanFlags
 	}
 	return ""
 }
 
-func (x *PlanCommand) GetPlanFlags() string {
+func (x *PlanCommand) GetStackName() string {
 	if x != nil {
-		return x.PlanFlags
+		return x.StackName
+	}
+	return ""
+}
+
+func (x *PlanCommand) GetDir() string {
+	if x != nil {
+		return x.Dir
 	}
 	return ""
 }
@@ -376,7 +384,6 @@ type ApplyCommand struct {
 	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	PrNumber      int32                  `protobuf:"varint,2,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	CommitHash    string                 `protobuf:"bytes,3,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
-	Branch        string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -428,13 +435,6 @@ func (x *ApplyCommand) GetPrNumber() int32 {
 func (x *ApplyCommand) GetCommitHash() string {
 	if x != nil {
 		return x.CommitHash
-	}
-	return ""
-}
-
-func (x *ApplyCommand) GetBranch() string {
-	if x != nil {
-		return x.Branch
 	}
 	return ""
 }
@@ -626,28 +626,29 @@ const file_terraplane_v1_terraform_envelope_proto_rawDesc = "" +
 	"\fapply_result\x18\x06 \x01(\v2\x1a.terraplane.v1.ApplyResultH\x00R\vapplyResult\x126\n" +
 	"\x06unlock\x18\a \x01(\v2\x1c.terraplane.v1.UnlockCommandH\x00R\x06unlock\x12B\n" +
 	"\runlock_result\x18\b \x01(\v2\x1b.terraplane.v1.UnlockResultH\x00R\funlockResultB\t\n" +
-	"\apayload\"\x96\x01\n" +
+	"\apayload\"\xaf\x01\n" +
 	"\vPlanCommand\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x1b\n" +
 	"\tpr_number\x18\x02 \x01(\x05R\bprNumber\x12\x1f\n" +
 	"\vcommit_hash\x18\x03 \x01(\tR\n" +
-	"commitHash\x12\x16\n" +
-	"\x06branch\x18\x04 \x01(\tR\x06branch\x12\x1d\n" +
+	"commitHash\x12\x1d\n" +
 	"\n" +
-	"plan_flags\x18\x05 \x01(\tR\tplanFlags\"\x1f\n" +
+	"plan_flags\x18\x04 \x01(\tR\tplanFlags\x12\x1d\n" +
+	"\n" +
+	"stack_name\x18\x05 \x01(\tR\tstackName\x12\x10\n" +
+	"\x03dir\x18\x06 \x01(\tR\x03dir\"\x1f\n" +
 	"\x03Ack\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"T\n" +
 	"\n" +
 	"PlanResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"x\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"`\n" +
 	"\fApplyCommand\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x1b\n" +
 	"\tpr_number\x18\x02 \x01(\x05R\bprNumber\x12\x1f\n" +
 	"\vcommit_hash\x18\x03 \x01(\tR\n" +
-	"commitHash\x12\x16\n" +
-	"\x06branch\x18\x04 \x01(\tR\x06branch\"U\n" +
+	"commitHash\"U\n" +
 	"\vApplyResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +

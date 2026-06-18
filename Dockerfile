@@ -2,7 +2,7 @@ FROM golang:1.25.11 AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y unzip
+RUN apt-get update && apt-get install -y unzip ca-certificates
 
 RUN wget -q https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protoc-35.1-linux-x86_64.zip -O protoc.zip && \
     unzip protoc.zip -d /usr/local && \
@@ -22,5 +22,6 @@ RUN make build
 
 FROM scratch
 
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /app/bin/terraplane /usr/local/bin/terraplane
 ENTRYPOINT ["/usr/local/bin/terraplane"]

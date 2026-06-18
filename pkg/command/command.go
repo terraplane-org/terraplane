@@ -23,7 +23,8 @@ type base struct {
 
 type PlanCommand struct {
 	base
-	Stacks []string
+	Stacks    []string
+	PlanFlags string
 }
 
 type ApplyCommand struct{ base }
