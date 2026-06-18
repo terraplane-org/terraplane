@@ -33,16 +33,18 @@ func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 		return nil, err
 	}
 
-	github_event := r.Header.Get("X-GitHub-Event")
-	switch github_event {
+	githubEvent := r.Header.Get("X-GitHub-Event")
+	switch githubEvent {
 	case "":
+		p.logger.Debug("Ignoring GitHub webhook with missing X-GitHub-Event header")
 		return nil, nil
 	case "ping":
+		p.logger.Debug("Ignoring GitHub ping webhook")
 		return nil, nil
-	case "issue_comment": // This is the main event we're interested in for GH comments
+	case "issue_comment":
 		return p.parseIssueCommentWebhook(r)
 	default:
-		p.logger.Warn("Received unhandled GitHub event: %s", github_event)
+		p.logger.Warn("Ignoring unhandled GitHub webhook event", "event", githubEvent)
 		return nil, nil
 	}
 }
@@ -54,60 +56,90 @@ func (p *provider) GetFile(fileName string, revision string, repo string) (strin
 func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read request body: %w", err)
+		return nil, fmt.Errorf("failed to read GitHub issue comment webhook request body: %w", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	var issueCommentWebhook issueCommentWebhook
-	err = json.Unmarshal(body, &issueCommentWebhook)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal issue comment event: %w", err)
+	var payload issueCommentWebhook
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GitHub issue comment webhook payload: %w", err)
 	}
 
-	if issueCommentWebhook.Comment.Body == "" {
-		return nil, fmt.Errorf("comment body is empty")
+	if payload.Comment.Body == "" {
+		return nil, fmt.Errorf("GitHub issue comment webhook contained an empty comment body for repository %s issue #%d", payload.Repository.FullName, payload.Issue.Number)
 	}
 
-	if issueCommentWebhook.Action != "created" {
+	if payload.Action != "created" {
+		p.logger.Debug(
+			"Ignoring GitHub issue comment webhook because the action is not created",
+			"repo", payload.Repository.FullName,
+			"issue", payload.Issue.Number,
+			"action", payload.Action,
+		)
 		return nil, nil
 	}
 
-	if issueCommentWebhook.Issue.PullRequest == nil {
+	if payload.Issue.PullRequest == nil {
+		p.logger.Debug(
+			"Ignoring GitHub issue comment webhook because the comment was not left on a pull request",
+			"repo", payload.Repository.FullName,
+			"issue", payload.Issue.Number,
+		)
 		return nil, nil
 	}
 
-	commitSHA, err := p.client.getCommitSHA(context.Background(), issueCommentWebhook.Repository.FullName, issueCommentWebhook.Issue.Number)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit SHA: %w", err)
-	}
-	scmWebhook := p.webhookToScmWebhook(issueCommentWebhook, commitSHA)
+	repo := payload.Repository.FullName
+	prNumber := payload.Issue.Number
 
-	return []scm.Webhook{scmWebhook}, nil
+	p.logger.Debug(
+		"Processing GitHub pull request comment webhook",
+		"repo", repo,
+		"pr", prNumber,
+		"user", payload.Comment.User.Login,
+	)
+
+	commitSHA, err := p.client.getCommitSHA(context.Background(), repo, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve pull request head commit for repository %s PR #%d: %w", repo, prNumber, err)
+	}
+
+	webhook := p.webhookToScmWebhook(payload, commitSHA)
+
+	p.logger.Info(
+		"Received pull request comment webhook",
+		"repo", webhook.RepositorySlug,
+		"pr", webhook.PRNumber,
+		"user", webhook.TriggeringUser,
+		"commit", webhook.CommitSHA,
+		"comment", webhook.FullCommand,
+	)
+
+	return []scm.Webhook{webhook}, nil
 }
 
 func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook, commitSHA string) scm.Webhook {
-	var scmWebhook scm.Webhook
-	scmWebhook.RepositorySlug = webhook.Repository.FullName
-	scmWebhook.PRNumber = webhook.Issue.Number
-	scmWebhook.FullCommand = webhook.Comment.Body
-	scmWebhook.TriggeringUser = webhook.Comment.User.Login
-	scmWebhook.CommitSHA = commitSHA
-	return scmWebhook
+	return scm.Webhook{
+		RepositorySlug: webhook.Repository.FullName,
+		PRNumber:       webhook.Issue.Number,
+		FullCommand:    webhook.Comment.Body,
+		TriggeringUser: webhook.Comment.User.Login,
+		CommitSHA:      commitSHA,
+	}
 }
 
 func (p *provider) verifyWebhookSignature(r *http.Request) ([]byte, error) {
 	if p.github_webhook_secret == "" {
-		return nil, fmt.Errorf("webhook secret is not configured")
+		return nil, fmt.Errorf("GitHub webhook secret is not configured. Please set ORCHESTRATOR_GITHUB_WEBHOOK_SECRET in the environment")
 	}
 
 	signature := r.Header.Get("X-Hub-Signature-256")
 	if signature == "" {
-		return nil, fmt.Errorf("X-Hub-Signature-256 header is missing")
+		return nil, fmt.Errorf("GitHub webhook request is missing the X-Hub-Signature-256 header")
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read request body: %w", err)
+		return nil, fmt.Errorf("failed to read GitHub webhook request body during signature verification: %w", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
@@ -116,7 +148,7 @@ func (p *provider) verifyWebhookSignature(r *http.Request) ([]byte, error) {
 	expected := signaturePrefix + hex.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(expected), []byte(signature)) {
-		return nil, fmt.Errorf("webhook signature does not match")
+		return nil, fmt.Errorf("GitHub webhook signature verification failed")
 	}
 
 	return body, nil

@@ -48,37 +48,69 @@ func NewHandler(
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SCM webhook handler called")
-	webhook, err := h.scmProvider.ParseWebhook(r)
+
+	webhooks, err := h.scmProvider.ParseWebhook(r)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to parse SCM webhook")
 		return
 	}
-	if webhook == nil {
-		h.logger.Debug("No actionable SCM webhook event found")
+	if len(webhooks) == 0 {
+		h.logger.Debug("No actionable SCM webhook events found")
 		writeResponse(w, http.StatusOK, "No actionable event found")
 		return
 	}
 
-	command := command.ParseWebhook(&webhook[0])
-
-	h.handleScmWebhook(command)
+	for _, webhook := range webhooks {
+		cmd := command.ParseWebhook(&webhook)
+		if cmd.Kind == command.KindUnknown {
+			h.logger.Debug(
+				"Ignoring pull request comment that is not a terraplane command",
+				"repo", webhook.RepositorySlug,
+				"pr", webhook.PRNumber,
+				"user", webhook.TriggeringUser,
+				"comment", webhook.FullCommand,
+			)
+			continue
+		}
+		h.handleCommand(cmd)
+	}
 
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
 }
 
-func (h *handler) handleScmWebhook(cmd command.Command) {
+func (h *handler) handleCommand(cmd command.Command) {
 	switch cmd.Kind {
 	case command.KindPlan:
-		h.logger.Info("Parsed plan command", "repo", cmd.Plan.Repo, "pr", cmd.Plan.PRNumber, "user", cmd.Plan.TriggerUser, "stacks", cmd.Plan.Stacks, "commit", cmd.Plan.CommitSHA)
+		h.logger.Info(
+			"Received terraplane plan command",
+			"repo", cmd.Plan.Repo,
+			"pr", cmd.Plan.PRNumber,
+			"user", cmd.Plan.TriggerUser,
+			"commit", cmd.Plan.CommitSHA,
+			"stacks", cmd.Plan.Stacks,
+			"comment", cmd.Plan.RawComment,
+		)
 	case command.KindApply:
-		h.logger.Info("Parsed apply command", "repo", cmd.Apply.Repo, "pr", cmd.Apply.PRNumber, "user", cmd.Apply.TriggerUser)
+		h.logger.Info(
+			"Received terraplane apply command",
+			"repo", cmd.Apply.Repo,
+			"pr", cmd.Apply.PRNumber,
+			"user", cmd.Apply.TriggerUser,
+			"commit", cmd.Apply.CommitSHA,
+			"comment", cmd.Apply.RawComment,
+		)
 	case command.KindUnlock:
-		h.logger.Info("Parsed unlock command", "repo", cmd.Unlock.Repo, "pr", cmd.Unlock.PRNumber, "user", cmd.Unlock.TriggerUser)
-	case command.KindUnknown:
-		h.logger.Debug("Ignoring unrecognized command")
+		h.logger.Info(
+			"Received terraplane unlock command",
+			"repo", cmd.Unlock.Repo,
+			"pr", cmd.Unlock.PRNumber,
+			"user", cmd.Unlock.TriggerUser,
+			"commit", cmd.Unlock.CommitSHA,
+			"comment", cmd.Unlock.RawComment,
+		)
 	default:
-		h.logger.Warn("Unhandled command kind", "kind", cmd.Kind)
+		h.logger.Warn("Received terraplane command with unhandled kind", "kind", cmd.Kind)
 	}
 }
 
