@@ -5,5 +5,6 @@ type Webhook struct {
 	PRNumber       int
 	FullCommand    string
 	TriggeringUser string
+	CommitSHA      string
 	ExtraData      map[string]any
 }

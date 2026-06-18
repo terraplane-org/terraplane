@@ -8,6 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
@@ -47,13 +48,38 @@ func NewHandler(
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SCM webhook handler called")
-	_, err := h.scmProvider.ParseWebhook(r)
+	webhook, err := h.scmProvider.ParseWebhook(r)
 	if err != nil {
 		h.logger.Error("Failed to parse SCM webhook", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to parse SCM webhook")
 		return
 	}
+	if webhook == nil {
+		h.logger.Debug("No actionable SCM webhook event found")
+		writeResponse(w, http.StatusOK, "No actionable event found")
+		return
+	}
+
+	command := command.ParseWebhook(&webhook[0])
+
+	h.handleScmWebhook(command)
+
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
+}
+
+func (h *handler) handleScmWebhook(cmd command.Command) {
+	switch cmd.Kind {
+	case command.KindPlan:
+		h.logger.Info("Parsed plan command", "repo", cmd.Plan.Repo, "pr", cmd.Plan.PRNumber, "user", cmd.Plan.TriggerUser, "stacks", cmd.Plan.Stacks, "commit", cmd.Plan.CommitSHA)
+	case command.KindApply:
+		h.logger.Info("Parsed apply command", "repo", cmd.Apply.Repo, "pr", cmd.Apply.PRNumber, "user", cmd.Apply.TriggerUser)
+	case command.KindUnlock:
+		h.logger.Info("Parsed unlock command", "repo", cmd.Unlock.Repo, "pr", cmd.Unlock.PRNumber, "user", cmd.Unlock.TriggerUser)
+	case command.KindUnknown:
+		h.logger.Debug("Ignoring unrecognized command")
+	default:
+		h.logger.Warn("Unhandled command kind", "kind", cmd.Kind)
+	}
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {

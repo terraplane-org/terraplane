@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
-
 	"github.com/xyzjace/terraplane/pkg/scm"
 )
 
@@ -21,6 +21,7 @@ const signaturePrefix = "sha256="
 type provider struct {
 	logger                log.Logger
 	github_webhook_secret string
+	client                Client
 }
 
 func (p *provider) Name() string {
@@ -44,6 +45,10 @@ func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 		p.logger.Warn("Received unhandled GitHub event: %s", github_event)
 		return nil, nil
 	}
+}
+
+func (p *provider) GetFile(fileName string, revision string, repo string) (string, error) {
+	return p.client.getFile(context.Background(), repo, fileName, revision)
 }
 
 func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, error) {
@@ -71,17 +76,22 @@ func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, err
 		return nil, nil
 	}
 
-	scmWebhook := p.webhookToScmWebhook(issueCommentWebhook)
+	commitSHA, err := p.client.getCommitSHA(context.Background(), issueCommentWebhook.Repository.FullName, issueCommentWebhook.Issue.Number)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit SHA: %w", err)
+	}
+	scmWebhook := p.webhookToScmWebhook(issueCommentWebhook, commitSHA)
 
 	return []scm.Webhook{scmWebhook}, nil
 }
 
-func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook) scm.Webhook {
+func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook, commitSHA string) scm.Webhook {
 	var scmWebhook scm.Webhook
 	scmWebhook.RepositorySlug = webhook.Repository.FullName
 	scmWebhook.PRNumber = webhook.Issue.Number
 	scmWebhook.FullCommand = webhook.Comment.Body
 	scmWebhook.TriggeringUser = webhook.Comment.User.Login
+	scmWebhook.CommitSHA = commitSHA
 	return scmWebhook
 }
 
@@ -112,6 +122,6 @@ func (p *provider) verifyWebhookSignature(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-func NewProvider(logger log.Logger, config *config.Config) scm.Provider {
-	return &provider{logger: logger, github_webhook_secret: config.OrchestratorGithubWebhookSecret}
+func NewProvider(logger log.Logger, config *config.Config, client Client) scm.Provider {
+	return &provider{logger: logger, github_webhook_secret: config.OrchestratorGithubWebhookSecret, client: client}
 }
