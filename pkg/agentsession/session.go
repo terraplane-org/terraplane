@@ -14,6 +14,7 @@ import (
 type Session interface {
 	ID() string
 	Run(ctx context.Context) error
+	Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error
 }
 
 type session struct {
@@ -48,6 +49,10 @@ func (s *session) Run(ctx context.Context) error {
 
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
+}
+
+func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	return wsproto.Write(ctx, s.conn, msg)
 }
 
 func isExpectedDisconnect(err error) bool {

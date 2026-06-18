@@ -10,6 +10,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -91,6 +92,11 @@ func (h *handler) handleCommand(cmd command.Command) {
 			"stacks", cmd.Plan.Stacks,
 			"comment", cmd.Plan.RawComment,
 		)
+		planService := services.NewPlanService(h.logger, h.sessionRegistry, h.scmProvider)
+		if err := planService.RunPlan(cmd.Plan); err != nil {
+			h.logger.Error("Failed to run plan", "error", err)
+			return
+		}
 	case command.KindApply:
 		h.logger.Info(
 			"Received terraplane apply command",
