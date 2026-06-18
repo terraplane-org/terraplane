@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/xyzjace/terraplane/pkg/agent/handlers"
 	"github.com/xyzjace/terraplane/pkg/log"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -13,21 +15,27 @@ import (
 )
 
 type Session struct {
-	id     string
-	conn   *websocket.Conn
-	logger log.Logger
+	id       string
+	conn     *websocket.Conn
+	logger   log.Logger
+	handlers *handlers.Handlers
+	writeMu  sync.Mutex
 }
 
 func NewSession(id string, conn *websocket.Conn, logger log.Logger) *Session {
-	return &Session{
+	s := &Session{
 		id:     id,
 		conn:   conn,
 		logger: logger,
 	}
+	s.handlers = handlers.New(logger, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
+		return s.Write(ctx, env)
+	})
+	return s
 }
 
 func (s *Session) Hello(ctx context.Context) error {
-	return wsproto.Write(ctx, s.conn, &terraplanev1.WebsocketEnvelope{
+	return s.write(ctx, &terraplanev1.WebsocketEnvelope{
 		Payload: &terraplanev1.WebsocketEnvelope_Hello{
 			Hello: &terraplanev1.Hello{
 				AgentId: s.id,
@@ -36,12 +44,18 @@ func (s *Session) Hello(ctx context.Context) error {
 	})
 }
 
+func (s *Session) write(ctx context.Context, msg proto.Message) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return wsproto.Write(ctx, s.conn, msg)
+}
+
 func (s *Session) Read(ctx context.Context, msg proto.Message) error {
 	return wsproto.Read(ctx, s.conn, msg)
 }
 
 func (s *Session) Write(ctx context.Context, msg proto.Message) error {
-	return wsproto.Write(ctx, s.conn, msg)
+	return s.write(ctx, msg)
 }
 
 func (s *Session) Run(ctx context.Context) error {
@@ -55,7 +69,15 @@ func (s *Session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
-		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
+		env := proto.Clone(&msg).(*terraplanev1.TerraformEnvelope)
+		if err := s.handlers.Dispatch(ctx, env); err != nil {
+			s.logger.Error(
+				"Failed to dispatch terraform envelope",
+				"agent_id", s.id,
+				"job_id", env.GetJobId(),
+				"error", err,
+			)
+		}
 	}
 }
 
