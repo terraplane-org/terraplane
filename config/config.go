@@ -21,6 +21,8 @@ type Config struct {
 	AgentID                         string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath              string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 	AgentWorkDir                    string        `mapstructure:"AGENT_WORK_DIR"`
+	AgentTerraformBinDir            string        `mapstructure:"AGENT_TERRAFORM_BIN_DIR"`
+	AgentDefaultTerraformVersion    string        `mapstructure:"AGENT_DEFAULT_TERRAFORM_VERSION"`
 }
 
 func NewConfig() (*Config, error) {
@@ -63,4 +65,6 @@ func init() {
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 	viper.SetDefault("AGENT_WORK_DIR", "")
+	viper.SetDefault("AGENT_TERRAFORM_BIN_DIR", "")
+	viper.SetDefault("AGENT_DEFAULT_TERRAFORM_VERSION", "1.15.6")
 }

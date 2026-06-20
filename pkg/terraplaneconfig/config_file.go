@@ -11,9 +11,10 @@ type ConfigFile struct {
 }
 
 type Stack struct {
-	Name  string `yaml:"name"`
-	Agent string `yaml:"agent"`
-	Dir   string `yaml:"dir"`
+	Name             string `yaml:"name"`
+	Agent            string `yaml:"agent"`
+	Dir              string `yaml:"dir"`
+	TerraformVersion string `yaml:"terraform_version"`
 }
 
 func ParseConfigFile(data []byte) (*ConfigFile, error) {

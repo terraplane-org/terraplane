@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
@@ -42,11 +42,36 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		}
 	}()
 
-	// TODO: run terraform plan in workspaceDir/cmd.GetDir()
-	_ = workspaceDir
+	terraformManager := terraform.NewManager(h.logger, workspaceDir, h.terraformBinDir, h.defaultTerraformVersion)
+	output, err := terraformManager.RunPlan(ctx, cmd.GetStackName(), cmd.GetPlanFlags())
+	if err != nil {
+		h.logger.Error(
+			"Failed to run terraform plan",
+			"repo", cmd.GetRepo(),
+			"pr", cmd.GetPrNumber(),
+			"stack", cmd.GetStackName(),
+			"error", err,
+		)
+		result := &terraplanev1.PlanResult{
+			Success: false,
+			Output:  output,
+			Error:   err.Error(),
+		}
+		if writeErr := h.writePlanResult(ctx, jobID, result); writeErr != nil {
+			h.logger.Error(
+				"Failed to send plan result to orchestrator",
+				"job_id", jobID,
+				"repo", cmd.GetRepo(),
+				"stack", cmd.GetStackName(),
+				"error", writeErr,
+			)
+		}
+		return
+	}
+
 	result := &terraplanev1.PlanResult{
 		Success: true,
-		Output:  fmt.Sprintf("stub plan for stack %q in %q", cmd.GetStackName(), cmd.GetDir()),
+		Output:  output,
 	}
 
 	if err := h.writePlanResult(ctx, jobID, result); err != nil {
