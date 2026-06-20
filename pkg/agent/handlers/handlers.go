@@ -10,18 +10,22 @@ import (
 type WriteFunc func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error
 
 type Handlers struct {
-	logger     log.Logger
-	write      WriteFunc
-	sshKeyPath string
-	workDir    string
+	logger                  log.Logger
+	write                   WriteFunc
+	sshKeyPath              string
+	workDir                 string
+	terraformBinDir         string
+	defaultTerraformVersion string
 }
 
-func New(logger log.Logger, write WriteFunc, sshKeyPath, workDir string) *Handlers {
+func New(logger log.Logger, write WriteFunc, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion string) *Handlers {
 	return &Handlers{
-		logger:     logger,
-		write:      write,
-		sshKeyPath: sshKeyPath,
-		workDir:    workDir,
+		logger:                  logger,
+		write:                   write,
+		sshKeyPath:              sshKeyPath,
+		workDir:                 workDir,
+		terraformBinDir:         terraformBinDir,
+		defaultTerraformVersion: defaultTerraformVersion,
 	}
 }
 

@@ -26,6 +26,7 @@ services:
       AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"
       AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
       AGENT_WORK_DIR: /var/terraplane/work
+      AGENT_TERRAFORM_BIN_DIR: /var/terraplane/work/terraform
 
   agent-prod:
     image: terraplane
@@ -42,6 +43,7 @@ services:
       AGENT_ORCHESTRATOR_URL: "ws://orchestrator:8080/ws"
       AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
       AGENT_WORK_DIR: /var/terraplane/work
+      AGENT_TERRAFORM_BIN_DIR: /var/terraplane/work/terraform
 
 volumes:
   agent-dev-work:

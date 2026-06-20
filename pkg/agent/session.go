@@ -22,7 +22,7 @@ type Session struct {
 	writeMu  sync.Mutex
 }
 
-func NewSession(id string, conn *websocket.Conn, logger log.Logger, sshKeyPath, workDir string) *Session {
+func NewSession(id string, conn *websocket.Conn, logger log.Logger, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion string) *Session {
 	s := &Session{
 		id:     id,
 		conn:   conn,
@@ -30,7 +30,7 @@ func NewSession(id string, conn *websocket.Conn, logger log.Logger, sshKeyPath, 
 	}
 	s.handlers = handlers.New(logger, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
 		return s.Write(ctx, env)
-	}, sshKeyPath, workDir)
+	}, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion)
 	return s
 }
 
