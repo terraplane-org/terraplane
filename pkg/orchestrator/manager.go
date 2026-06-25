@@ -9,6 +9,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/storage"
 	"github.com/xyzjace/terraplane/pkg/webserver"
 	"golang.org/x/sync/errgroup"
 )
@@ -21,9 +22,14 @@ type manager struct {
 	serverShutdownTimer time.Duration
 	logger              log.Logger
 	server              webserver.Server
+	db                  *storage.DB
 }
 
 func (o *manager) Start(ctx context.Context) error {
+	if err := o.db.RequireCurrentSchema(ctx); err != nil {
+		return err
+	}
+
 	group, ctx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
@@ -57,10 +63,11 @@ func (o *manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func NewManager(config *config.Config, logger log.Logger, server webserver.Server) Manager {
+func NewManager(config *config.Config, logger log.Logger, server webserver.Server, db *storage.DB) Manager {
 	return &manager{
 		serverShutdownTimer: config.ServerShutdownTimer,
 		logger:              logger,
 		server:              server,
+		db:                  db,
 	}
 }

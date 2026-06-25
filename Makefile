@@ -8,7 +8,7 @@ BIN_TERRAPLANE_LINUX=$(BIN_TERRAPLANE)-linux-amd64
 BIN_TERRAPLANE_DARWIN=$(BIN_TERRAPLANE)-darwin-arm64
 GOLANGCI_LINT := golangci-lint
 
-.PHONY: build unit-test tests clean generate run-orchestrator run-agent build-linux build-darwin lint
+.PHONY: build unit-test tests clean generate run-orchestrator run-agent build-linux build-darwin lint db-migrate-diff db-migrate-validate govulncheck
 
 default: build
 
@@ -51,3 +51,16 @@ build-darwin:
 
 lint:
 	$(GOLANGCI_LINT) run
+
+# Generate a migration from GORM model changes. Usage: make db-migrate-diff name=add_job_status
+db-migrate-diff:
+	@test -n "$(name)" || (echo 'usage: make db-migrate-diff name=<migration_name>' && exit 1)
+	atlas migrate diff $(name) --env gorm
+
+db-migrate-validate:
+	atlas migrate validate --dir file://pkg/storage/migrations
+
+# tools/atlas is build-tagged out of ./... so govulncheck does not traverse the
+# Atlas provider dependency graph (which panics symbol scan on Go 1.25).
+govulncheck:
+	govulncheck -C . -format text ./...

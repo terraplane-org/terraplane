@@ -1,13 +1,46 @@
 services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: terraplane
+      POSTGRES_PASSWORD: terraplane
+      POSTGRES_DB: terraplane
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terraplane -d terraplane"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-migrate:
+    image: terraplane
+    command: ["db", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_DRIVER: postgres
+      DATABASE_URL: postgres://terraplane:terraplane@postgres:5432/terraplane?sslmode=disable
+    env_file:
+      - .env
+
   orchestrator:
     build: .
     image: terraplane
     command: ["orchestrator"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     environment:
       ORCHESTRATOR_LISTEN_ADDRESS: 0.0.0.0
       ORCHESTRATOR_LISTEN_PORT: "8080"
+      DATABASE_DRIVER: postgres
+      DATABASE_URL: postgres://terraplane:terraplane@postgres:5432/terraplane?sslmode=disable
     env_file:
       - .env
 
@@ -48,3 +81,4 @@ services:
 volumes:
   agent-dev-work:
   agent-prod-work:
+  postgres-data:
