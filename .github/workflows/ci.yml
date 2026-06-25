@@ -84,6 +84,21 @@ jobs:
       - name: Run tests
         run: make unit-test
 
+  migrations:
+    name: Validate migrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Install Atlas
+        run: |
+          curl -sSfL https://release.ariga.io/atlas/atlas-linux-amd64-latest -o /usr/local/bin/atlas
+          chmod +x /usr/local/bin/atlas
+
+      - name: Validate migration directory
+        run: make db-migrate-validate
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest

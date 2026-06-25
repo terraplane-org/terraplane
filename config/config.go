@@ -23,6 +23,8 @@ type Config struct {
 	AgentWorkDir                    string        `mapstructure:"AGENT_WORK_DIR"`
 	AgentTerraformBinDir            string        `mapstructure:"AGENT_TERRAFORM_BIN_DIR"`
 	AgentDefaultTerraformVersion    string        `mapstructure:"AGENT_DEFAULT_TERRAFORM_VERSION"`
+	DatabaseDriver                  string        `mapstructure:"DATABASE_DRIVER"`
+	DatabaseURL                     string        `mapstructure:"DATABASE_URL"`
 }
 
 func NewConfig() (*Config, error) {
@@ -67,4 +69,6 @@ func init() {
 	viper.SetDefault("AGENT_WORK_DIR", "")
 	viper.SetDefault("AGENT_TERRAFORM_BIN_DIR", "")
 	viper.SetDefault("AGENT_DEFAULT_TERRAFORM_VERSION", "1.15.6")
+	viper.SetDefault("DATABASE_DRIVER", "postgres")
+	viper.SetDefault("DATABASE_URL", "")
 }

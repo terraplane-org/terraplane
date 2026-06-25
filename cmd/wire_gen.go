@@ -14,6 +14,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
+	"github.com/xyzjace/terraplane/pkg/storage"
 	"github.com/xyzjace/terraplane/pkg/webserver"
 )
 
@@ -31,7 +32,11 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	factory := agentsession.NewFactory(logger, registry)
 	handler := webserver.NewHandler(logger, provider, registry, factory)
 	server := webserver.NewServer(configConfig, logger, handler)
-	manager := orchestrator.NewManager(configConfig, logger, server)
+	db, err := storage.New(configConfig)
+	if err != nil {
+		return nil, err
+	}
+	manager := orchestrator.NewManager(configConfig, logger, server, db)
 	return manager, nil
 }
 
