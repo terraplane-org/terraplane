@@ -78,7 +78,7 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 		"stacks", stackNames,
 	)
 
-	// Locks are keyed by repo + stack, not PR — release the resolved stacks in this repo.
+	// Locks are keyed by repo + stack + workspace, not PR — release the resolved stacks in this repo.
 	deletedLocks, err := s.locks.DeleteByRepoAndStacks(ctx, unlock.Repo, stackNames)
 	if err != nil {
 		return fmt.Errorf(
