@@ -72,7 +72,7 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 	}
 
 	s.logger.Info(
-		"Resolved terraplane stacks for plan",
+		"Resolved terraplane stacks for apply",
 		"repo", apply.Repo,
 		"pr", apply.PRNumber,
 		"stack_count", len(stacks),
