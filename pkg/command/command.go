@@ -27,6 +27,12 @@ type PlanCommand struct {
 	PlanFlags string
 }
 
-type ApplyCommand struct{ base }
+type ApplyCommand struct {
+	base
+	Stacks []string
+}
 
-type UnlockCommand struct{ base }
+type UnlockCommand struct {
+	base
+	Stacks []string
+}

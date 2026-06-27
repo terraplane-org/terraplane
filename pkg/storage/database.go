@@ -8,16 +8,16 @@ import (
 )
 
 type DB struct {
-	gorm        *gorm.DB
+	pool        *gorm.DB
 	databaseURL string
 }
 
 func New(cfg *config.Config) (*DB, error) {
-	gormDB, err := openDB(cfg)
+	pool, err := openDB(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &DB{gorm: gormDB, databaseURL: cfg.DatabaseURL}, nil
+	return &DB{pool: pool, databaseURL: cfg.DatabaseURL}, nil
 }
 
 // Migrate applies pending Atlas migrations bundled with the application.

@@ -13,7 +13,7 @@ const (
 
 // Job tracks a single stack dispatch (plan/apply/unlock) over the agent websocket.
 type Job struct {
-	ID        string `gorm:"primaryKey;size:32"`
+	ID        string `gorm:"primaryKey;size:36"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
@@ -23,7 +23,7 @@ type Job struct {
 	Dir       string `gorm:"size:512;not null"`
 	CommitSHA string `gorm:"size:64;not null"`
 
-	Status   JobStatus `gorm:"size:32;not null"`
+	Status   JobStatus `gorm:"size:32;not null;default:'pending'"`
 	Output   string    `gorm:"type:text"`
 	ErrorMsg string    `gorm:"type:text"`
 }
