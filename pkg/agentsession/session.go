@@ -66,7 +66,7 @@ func (s *session) Run(ctx context.Context) error {
 
 func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
 	// TODO: What should we do if any of this fails? Cancel the TF plan somehow?
-	// TODO: Maybe this should be its own service, but for now, we can just update the job status here and create a lcok
+	// TODO: Maybe this should be its own service, but for now, we can just update the job status here and create a lock
 
 	jobId := msg.GetJobId()
 	job, err := s.jobRepository.Get(ctx, jobId)
