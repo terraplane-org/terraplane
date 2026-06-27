@@ -18,9 +18,9 @@ func ParseWebhook(w *scm.Webhook) Command {
 	case KindPlan:
 		return Command{Kind: KindPlan, Plan: PlanCommand{base: b, Stacks: stacks(w.FullCommand), PlanFlags: planFlags(w.FullCommand)}}
 	case KindApply:
-		return Command{Kind: KindApply, Apply: ApplyCommand{base: b}}
+		return Command{Kind: KindApply, Apply: ApplyCommand{base: b, Stacks: stacks(w.FullCommand)}}
 	case KindUnlock:
-		return Command{Kind: KindUnlock, Unlock: UnlockCommand{base: b}}
+		return Command{Kind: KindUnlock, Unlock: UnlockCommand{base: b, Stacks: stacks(w.FullCommand)}}
 	default:
 		return Command{Kind: KindUnknown}
 	}
@@ -46,7 +46,7 @@ func verb(body string) Kind {
 func stacks(body string) []string {
 	fields := strings.Fields(firstLine(body))
 	start := 0
-	if len(fields) >= 2 && strings.EqualFold(fields[0], "terraplane") && strings.EqualFold(fields[1], "plan") {
+	if len(fields) >= 2 && strings.EqualFold(fields[0], "terraplane") && (strings.EqualFold(fields[1], "plan") || strings.EqualFold(fields[1], "unlock") || strings.EqualFold(fields[1], "apply")) {
 		start = 2
 	}
 

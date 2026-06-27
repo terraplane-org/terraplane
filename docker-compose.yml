@@ -34,6 +34,12 @@ services:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     ports:
       - "8080:8080"
     environment:
@@ -48,7 +54,8 @@ services:
     image: terraplane
     command: ["agent"]
     depends_on:
-      - orchestrator
+      orchestrator:
+        condition: service_healthy
     env_file:
       - .env
     volumes:
@@ -65,7 +72,8 @@ services:
     image: terraplane
     command: ["agent"]
     depends_on:
-      - orchestrator
+      orchestrator:
+        condition: service_healthy
     env_file:
       - .env
     volumes:

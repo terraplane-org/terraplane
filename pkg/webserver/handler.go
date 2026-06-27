@@ -24,6 +24,9 @@ type handler struct {
 	mux             *http.ServeMux
 	sessionRegistry agentsession.Registry
 	sessionFactory  agentsession.Factory
+	planService     services.PlanService
+	applyService    services.ApplyService
+	unlockService   services.UnlockService
 }
 
 func NewHandler(
@@ -31,6 +34,9 @@ func NewHandler(
 	scmProvider scm.Provider,
 	sessionRegistry agentsession.Registry,
 	sessionFactory agentsession.Factory,
+	planService services.PlanService,
+	applyService services.ApplyService,
+	unlockService services.UnlockService,
 ) http.Handler {
 	h := &handler{
 		logger:          logger,
@@ -38,6 +44,9 @@ func NewHandler(
 		scmProvider:     scmProvider,
 		sessionRegistry: sessionRegistry,
 		sessionFactory:  sessionFactory,
+		planService:     planService,
+		applyService:    applyService,
+		unlockService:   unlockService,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -94,9 +103,8 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"comment", cmd.Plan.RawComment,
 		)
 		plan := cmd.Plan
-		planService := services.NewPlanService(h.logger, h.sessionRegistry, h.scmProvider)
 		go func() {
-			if err := planService.RunPlan(context.WithoutCancel(ctx), plan); err != nil {
+			if err := h.planService.RunPlan(context.WithoutCancel(ctx), plan); err != nil {
 				h.logger.Error(
 					"Failed to run terraplane plan",
 					"repo", plan.Repo,
@@ -114,6 +122,17 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"commit", cmd.Apply.CommitSHA,
 			"comment", cmd.Apply.RawComment,
 		)
+		apply := cmd.Apply
+		go func() {
+			if err := h.applyService.RunApply(context.WithoutCancel(ctx), apply); err != nil {
+				h.logger.Error(
+					"Failed to run terraplane apply",
+					"repo", apply.Repo,
+					"pr", apply.PRNumber,
+					"error", err,
+				)
+			}
+		}()
 	case command.KindUnlock:
 		h.logger.Info(
 			"Received terraplane unlock command",
@@ -123,6 +142,17 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"commit", cmd.Unlock.CommitSHA,
 			"comment", cmd.Unlock.RawComment,
 		)
+		unlock := cmd.Unlock
+		go func() {
+			if err := h.unlockService.RunUnlock(context.WithoutCancel(ctx), unlock); err != nil {
+				h.logger.Error(
+					"Failed to run terraplane unlock",
+					"repo", unlock.Repo,
+					"pr", unlock.PRNumber,
+					"error", err,
+				)
+			}
+		}()
 	default:
 		h.logger.Warn("Received terraplane command with unhandled kind", "kind", cmd.Kind)
 	}

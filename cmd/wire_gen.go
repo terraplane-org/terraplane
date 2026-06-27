@@ -13,6 +13,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
 	"github.com/xyzjace/terraplane/pkg/storage"
 	"github.com/xyzjace/terraplane/pkg/webserver"
@@ -29,13 +30,18 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	client := github.NewClient(configConfig)
 	provider := github.NewProvider(logger, configConfig, client)
 	registry := agentsession.NewRegistry(logger)
-	factory := agentsession.NewFactory(logger, registry)
-	handler := webserver.NewHandler(logger, provider, registry, factory)
-	server := webserver.NewServer(configConfig, logger, handler)
 	db, err := storage.New(configConfig)
 	if err != nil {
 		return nil, err
 	}
+	jobRepository := storage.NewJobRepository(db)
+	lockRepository := storage.NewLockRepository(db)
+	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository)
+	planService := services.NewPlanService(logger, registry, provider, jobRepository)
+	applyService := services.NewApplyService(logger, registry, provider, jobRepository)
+	unlockService := services.NewUnlockService(logger, registry, provider, jobRepository, lockRepository)
+	handler := webserver.NewHandler(logger, provider, registry, factory, planService, applyService, unlockService)
+	server := webserver.NewServer(configConfig, logger, handler)
 	manager := orchestrator.NewManager(configConfig, logger, server, db)
 	return manager, nil
 }
