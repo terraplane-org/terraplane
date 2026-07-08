@@ -53,13 +53,17 @@ func (s *session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
+		// TODO: Move handlers to somewhere else
 		switch msg.GetPayload().(type) {
 		case *terraplanev1.TerraformEnvelope_Ack:
 			if err := s.handleAck(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling ack from agent %s: %w", s.id, err)
 			}
+		case *terraplanev1.TerraformEnvelope_PlanResult:
+			if err := s.handlePlanResult(ctx, &msg); err != nil {
+				return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
+			}
 		}
-
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
 }
@@ -99,6 +103,39 @@ func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnve
 	if err != nil {
 		return fmt.Errorf("failed to update job %s status to running: %w", jobId, err)
 	}
+
+	return nil
+}
+
+func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	jobId := msg.GetJobId()
+	job, err := s.jobRepository.Get(ctx, jobId)
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
+	}
+
+	planResult := msg.GetPlanResult()
+	if planResult == nil {
+		return errors.New("plan result is nil")
+	}
+
+	if planResult.GetSuccess() {
+		job.Status = models.JobStatusSucceeded
+	} else {
+		job.Status = models.JobStatusFailed
+	}
+	job.Output = planResult.Output
+	job.ErrorMsg = planResult.Error
+
+	if err := s.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
+	}
+
+	if err := s.lockRepository.Delete(ctx, job.Repo, job.StackName, "default"); err != nil {
+		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobId, job.StackName, err)
+	}
+	s.logger.Debug("Released lock for job", "job_id", jobId, "repo", job.Repo, "stack", job.StackName)
 
 	return nil
 }

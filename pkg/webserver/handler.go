@@ -192,6 +192,7 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Stop agent from being killed by various "errors" from the websocket connection like ACK receive
 	if err := session.Run(r.Context()); err != nil {
 		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
 	}

@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -24,6 +26,7 @@ type planService struct {
 	agentRegistry agentsession.Registry
 	scmProvider   scm.Provider
 	jobs          repository.JobRepository
+	locks         repository.LockRepository
 }
 
 func NewPlanService(
@@ -31,12 +34,14 @@ func NewPlanService(
 	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
 	jobs repository.JobRepository,
+	locks repository.LockRepository,
 ) PlanService {
 	return &planService{
 		logger:        logger,
 		agentRegistry: agentRegistry,
 		scmProvider:   scmProvider,
 		jobs:          jobs,
+		locks:         locks,
 	}
 }
 
@@ -101,6 +106,23 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 				"pr", plan.PRNumber,
 				"stack", stack.Name,
 				"agent", stack.Agent,
+			)
+			continue
+		}
+
+		lock, err := s.locks.Get(ctx, plan.Repo, stack.Name, "default")
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("failed to check lock for stack %q in repository %s: %w", stack.Name, plan.Repo, err)
+		}
+		if lock != nil {
+			// TODO: This should output to the SCM PR
+			s.logger.Warn(
+				"Skipping stack because it is locked",
+				"repo", plan.Repo,
+				"pr", plan.PRNumber,
+				"stack", stack.Name,
+				"locked_pr", lock.PRNumber,
+				"locked_by", lock.LockedBy,
 			)
 			continue
 		}

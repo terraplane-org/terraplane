@@ -28,6 +28,15 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
+func (r *jobRepository) FindByRepoPRAndStack(ctx context.Context, repo string, prNumber int, stackName string) ([]*models.Job, error) {
+	var jobs []*models.Job
+	err := r.db.pool.WithContext(ctx).Where("repo = ? AND pr_number = ? AND stack_name = ?", repo, prNumber, stackName).Find(&jobs).Error
+	if err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }

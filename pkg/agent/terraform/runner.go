@@ -13,10 +13,12 @@ type Runner interface {
 	Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error)
 }
 
-type runner struct{}
+type runner struct {
+	jobID string
+}
 
-func NewRunner() Runner {
-	return &runner{}
+func NewRunner(jobID string) Runner {
+	return &runner{jobID: jobID}
 }
 
 func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
@@ -32,7 +34,8 @@ func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
 }
 
 func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error) {
-	args := []string{"plan", "-no-color", "-input=false"}
+	planFile := fmt.Sprintf("plan-%s.tfplan", r.jobID)
+	args := []string{"plan", "-no-color", "-input=false", "-out=" + planFile}
 	if planFlags != "" {
 		args = append(args, strings.Fields(planFlags)...)
 	}
