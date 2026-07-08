@@ -12,6 +12,7 @@ import (
 
 type Manager interface {
 	RunPlan(ctx context.Context, stackName, planFlags string) (string, error)
+	RunApply(ctx context.Context, stackName string) (string, error)
 }
 
 type manager struct {
@@ -48,6 +49,20 @@ func (m *manager) RunPlan(ctx context.Context, stackName, planFlags string) (str
 	}
 
 	return m.runner.Plan(ctx, terraformBin, terraformDir, planFlags)
+}
+
+func (m *manager) RunApply(ctx context.Context, stackName string) (string, error) {
+	terraformDir, version, err := m.resolveStack(stackName)
+	if err != nil {
+		return "", err
+	}
+
+	terraformBin, err := m.versionManager.Ensure(ctx, version)
+	if err != nil {
+		return "", err
+	}
+
+	return m.runner.Apply(ctx, terraformBin, terraformDir)
 }
 
 func (m *manager) resolveStack(stackName string) (terraformDir, version string, err error) {

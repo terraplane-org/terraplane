@@ -2,8 +2,8 @@ package models
 
 import "time"
 
-// ProjectLock coordinates exclusive access to a stack
-// Key: repo + stack_name + workspace.
+// ProjectLock coordinates exclusive access to a stack during apply.
+// Uniqueness is enforced by idx_project_lock on (repo, stack_name, workspace).
 type ProjectLock struct {
 	ID        uint `gorm:"primaryKey"`
 	CreatedAt time.Time

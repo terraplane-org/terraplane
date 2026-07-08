@@ -63,6 +63,10 @@ func (s *session) Run(ctx context.Context) error {
 			if err := s.handlePlanResult(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
 			}
+		case *terraplanev1.TerraformEnvelope_ApplyResult:
+			if err := s.handleApplyResult(ctx, &msg); err != nil {
+				return fmt.Errorf("error handling apply result from agent %s: %w", s.id, err)
+			}
 		}
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
@@ -108,11 +112,56 @@ func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.Terraf
 		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
 	}
 
-	if err := s.lockRepository.Delete(ctx, job.Repo, job.StackName, "default"); err != nil {
-		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobId, job.StackName, err)
-	}
-	s.logger.Debug("Released lock for job", "job_id", jobId, "repo", job.Repo, "stack", job.StackName)
+	return nil
+}
 
+func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	jobId := msg.GetJobId()
+	job, err := s.jobRepository.Get(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
+	}
+
+	applyResult := msg.GetApplyResult()
+	if applyResult == nil {
+		job.Status = models.JobStatusFailed
+		job.ErrorMsg = "apply result is nil"
+	} else if applyResult.GetSuccess() {
+		job.Status = models.JobStatusSucceeded
+		job.Output = applyResult.Output
+		job.ErrorMsg = applyResult.Error
+	} else {
+		job.Status = models.JobStatusFailed
+		job.Output = applyResult.Output
+		job.ErrorMsg = applyResult.Error
+	}
+
+	if err := s.jobRepository.Update(ctx, job); err != nil {
+		if releaseErr := s.releaseApplyLock(ctx, job, jobId); releaseErr != nil {
+			return fmt.Errorf(
+				"failed to update job %s with apply result: %w (also failed to release lock: %v)",
+				jobId, err, releaseErr,
+			)
+		}
+		return fmt.Errorf("failed to update job %s with apply result: %w", jobId, err)
+	}
+
+	if err := s.releaseApplyLock(ctx, job, jobId); err != nil {
+		return err
+	}
+
+	if applyResult == nil {
+		return errors.New("apply result is nil")
+	}
+
+	return nil
+}
+
+func (s *session) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {
+	if err := s.lockRepository.Delete(ctx, job.Repo, job.StackName, "default"); err != nil {
+		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobID, job.StackName, err)
+	}
+	s.logger.Debug("Released lock for job", "job_id", jobID, "repo", job.Repo, "stack", job.StackName)
 	return nil
 }
 
