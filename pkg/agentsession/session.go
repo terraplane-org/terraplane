@@ -53,52 +53,65 @@ func (s *session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
+		// TODO: Move handlers to somewhere else
 		switch msg.GetPayload().(type) {
 		case *terraplanev1.TerraformEnvelope_Ack:
 			if err := s.handleAck(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling ack from agent %s: %w", s.id, err)
 			}
+		case *terraplanev1.TerraformEnvelope_PlanResult:
+			if err := s.handlePlanResult(ctx, &msg); err != nil {
+				return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
+			}
 		}
-
 		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
 	}
 }
 
 func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
-	// TODO: What should we do if any of this fails? Cancel the TF plan somehow?
-	// TODO: Maybe this should be its own service, but for now, we can just update the job status here and create a lock
+	jobId := msg.GetJobId()
+	job, err := s.jobRepository.Get(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
+	}
 
+	job.Status = models.JobStatusRunning
+	if err := s.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s status to running: %w", jobId, err)
+	}
+
+	return nil
+}
+
+func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
 	jobId := msg.GetJobId()
 	job, err := s.jobRepository.Get(ctx, jobId)
 
 	if err != nil {
-		// TODO: Should we cancel the job here if we can't find it?
 		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
 	}
 
-	// TODO: This assumes that the job is always a plan job. We should probably check the job type and only create a lock for plan jobs.
-	// Create a lock first
-	lock := &models.ProjectLock{
-		Repo:      job.Repo,
-		StackName: job.StackName,
-		Workspace: "default",
-		Dir:       job.Dir,
-		CommitSHA: job.CommitSHA,
-		LockedBy:  s.id, // TODO: This should be the triggering user ID
-		PRNumber:  job.PRNumber,
+	planResult := msg.GetPlanResult()
+	if planResult == nil {
+		return errors.New("plan result is nil")
 	}
 
-	err = s.lockRepository.Create(ctx, lock)
-	if err != nil {
-		return fmt.Errorf("failed to create lock for job %s: %w", jobId, err)
+	if planResult.GetSuccess() {
+		job.Status = models.JobStatusSucceeded
+	} else {
+		job.Status = models.JobStatusFailed
+	}
+	job.Output = planResult.Output
+	job.ErrorMsg = planResult.Error
+
+	if err := s.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
 	}
 
-	// Update the job status to running
-	job.Status = models.JobStatusRunning
-	err = s.jobRepository.Update(ctx, job)
-	if err != nil {
-		return fmt.Errorf("failed to update job %s status to running: %w", jobId, err)
+	if err := s.lockRepository.Delete(ctx, job.Repo, job.StackName, "default"); err != nil {
+		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobId, job.StackName, err)
 	}
+	s.logger.Debug("Released lock for job", "job_id", jobId, "repo", job.Repo, "stack", job.StackName)
 
 	return nil
 }

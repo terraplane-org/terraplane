@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,7 @@ import (
 )
 
 type Manager interface {
-	ProvisionWorkspace(ctx context.Context, repo string, revision string) (string, error)
+	ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
 	RemoveWorkspace(ctx context.Context) error
 }
 
@@ -27,7 +29,7 @@ func NewManager(logger log.Logger, sshKeyPath, workDir string) Manager {
 	return &manager{logger: logger, sshKeyPath: sshKeyPath, workDir: workDir}
 }
 
-func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision string) (string, error) {
+func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error) {
 	if m.sshKeyPath == "" {
 		return "", fmt.Errorf("AGENT_SCM_SSH_KEY_PATH is not configured; SSH is required to clone private repositories")
 	}
@@ -35,30 +37,80 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 		return "", fmt.Errorf("SSH key not found at %q: %w", m.sshKeyPath, err)
 	}
 
-	parentDir := m.workDir
-	if parentDir != "" {
-		if err := os.MkdirAll(parentDir, 0o755); err != nil {
-			return "", fmt.Errorf("failed to create work directory %q: %w", parentDir, err)
-		}
+	if m.workDir == "" {
+		return "", fmt.Errorf("AGENT_WORK_DIR is not configured; a work directory is required to provision workspaces")
+	}
+	if err := os.MkdirAll(m.workDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create work directory %q: %w", m.workDir, err)
 	}
 
-	sanitizedRepo := strings.ReplaceAll(repo, "/", "-")
-	tmpDir, err := os.MkdirTemp(parentDir, fmt.Sprintf("terraplane-workspace-%s-", sanitizedRepo))
+	// os.Root confines every filesystem operation below to m.workDir. Any repo,
+	// revision, or stack value that would otherwise escape the work directory
+	// (path separators, "..", symlinks) fails safely instead of touching the
+	// host filesystem, so no manual path sanitization is required.
+	root, err := os.OpenRoot(m.workDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temporary directory: %w", err)
+		return "", fmt.Errorf("failed to open work directory %q: %w", m.workDir, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	dirName := workspaceDirName(repo, revision, stack)
+	repoDirPath := filepath.Join(m.workDir, dirName)
+
+	if info, err := root.Stat(dirName); err == nil {
+		if info.IsDir() && workspaceReady(repoDirPath) {
+			m.logger.Info(
+				"Using existing workspace",
+				"repo", repo,
+				"revision", revision,
+				"stack", stack,
+				"path", repoDirPath,
+			)
+			m.workingDir = repoDirPath
+			return repoDirPath, nil
+		}
+
+		m.logger.Info(
+			"Removing incomplete workspace",
+			"repo", repo,
+			"revision", revision,
+			"stack", stack,
+			"path", repoDirPath,
+		)
+		if err := root.RemoveAll(dirName); err != nil {
+			return "", fmt.Errorf("failed to remove incomplete workspace %q: %w", repoDirPath, err)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("failed to stat workspace directory %q: %w", repoDirPath, err)
+	}
+
+	m.pruneStaleWorkspaces(root, repo, stack, dirName)
+
+	if err := root.Mkdir(dirName, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create workspace directory %q: %w", repoDirPath, err)
 	}
 
 	ok := false
 	defer func() {
 		if !ok {
-			_ = os.RemoveAll(tmpDir)
+			_ = root.RemoveAll(dirName)
 		}
 	}()
 
+	ok, err = m.cloneRepo(ctx, repo, revision, repoDirPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to clone repository %s at revision %s: %w", repo, revision, err)
+	}
+
+	m.workingDir = repoDirPath
+	return repoDirPath, nil
+}
+
+func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, repoDirPath string) (bool, error) {
 	host := scmHost(repo)
-	knownHostsPath := filepath.Join(tmpDir, "known_hosts")
+	knownHostsPath := filepath.Join(repoDirPath, "known_hosts")
 	if err := m.scanHostKeys(ctx, host, knownHostsPath); err != nil {
-		return "", err
+		return false, err
 	}
 
 	gitSSH := fmt.Sprintf(
@@ -68,22 +120,21 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 	)
 	repoURL := fmt.Sprintf("git@github.com:%s.git", repo)
 
-	if err := m.runGit(ctx, tmpDir, gitSSH, "init"); err != nil {
-		return "", fmt.Errorf("failed to initialize git repository: %w", err)
+	if err := m.runGit(ctx, repoDirPath, gitSSH, "init"); err != nil {
+		return false, fmt.Errorf("failed to initialize git repository: %w", err)
 	}
-	if err := m.runGit(ctx, tmpDir, gitSSH, "remote", "add", "origin", repoURL); err != nil {
-		return "", fmt.Errorf("failed to add git remote: %w", err)
+	if err := m.runGit(ctx, repoDirPath, gitSSH, "remote", "add", "origin", repoURL); err != nil {
+		return false, fmt.Errorf("failed to add git remote: %w", err)
 	}
-	if err := m.runGit(ctx, tmpDir, gitSSH, "fetch", "--depth", "1", "origin", revision); err != nil {
-		return "", fmt.Errorf("failed to fetch revision %s from %s: %w", revision, repo, err)
+	if err := m.runGit(ctx, repoDirPath, gitSSH, "fetch", "--depth", "1", "origin", revision); err != nil {
+		return false, fmt.Errorf("failed to fetch revision %s from %s: %w", revision, repo, err)
 	}
-	if err := m.runGit(ctx, tmpDir, gitSSH, "checkout", revision); err != nil {
-		return "", fmt.Errorf("failed to checkout revision %s: %w", revision, err)
+	if err := m.runGit(ctx, repoDirPath, gitSSH, "checkout", revision); err != nil {
+		return false, fmt.Errorf("failed to checkout revision %s: %w", revision, err)
 	}
 
-	ok = true
-	m.workingDir = tmpDir
-	return tmpDir, nil
+	m.workingDir = repoDirPath
+	return true, nil
 }
 
 func (m *manager) scanHostKeys(ctx context.Context, host, path string) error {
@@ -120,6 +171,63 @@ func (m *manager) runGit(ctx context.Context, dir, gitSSH string, args ...string
 		return fmt.Errorf("git %s exited with code %d: %s", strings.Join(args, " "), result.ExitCode, process.Output(result))
 	}
 	return nil
+}
+
+func workspaceReady(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "terraplane.yaml")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return false
+	}
+	return true
+}
+
+var pathSlug = strings.NewReplacer("/", "-", `\`, "-")
+
+func workspaceDirName(repo, revision, stack string) string {
+	return fmt.Sprintf(
+		"terraplane-workspace-%s-%s-%s",
+		pathSlug.Replace(repo),
+		pathSlug.Replace(revision),
+		pathSlug.Replace(stack),
+	)
+}
+
+func (m *manager) pruneStaleWorkspaces(root *os.Root, repo, stack, keepDirName string) {
+	prefix := fmt.Sprintf("terraplane-workspace-%s-", pathSlug.Replace(repo))
+	suffix := fmt.Sprintf("-%s", pathSlug.Replace(stack))
+
+	dir, err := root.Open(".")
+	if err != nil {
+		m.logger.Error("Failed to open work directory for pruning", "error", err)
+		return
+	}
+	defer func() { _ = dir.Close() }()
+
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		m.logger.Error("Failed to list workspaces for pruning", "error", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == keepDirName {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+
+		m.logger.Info("Removing stale workspace", "path", filepath.Join(m.workDir, name))
+		if err := root.RemoveAll(name); err != nil {
+			m.logger.Error("Failed to remove stale workspace", "name", name, "error", err)
+		}
+	}
 }
 
 func scmHost(repo string) string {

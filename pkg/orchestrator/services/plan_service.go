@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ type planService struct {
 	agentRegistry agentsession.Registry
 	scmProvider   scm.Provider
 	jobs          repository.JobRepository
+	locks         repository.LockRepository
 }
 
 func NewPlanService(
@@ -31,12 +33,14 @@ func NewPlanService(
 	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
 	jobs repository.JobRepository,
+	locks repository.LockRepository,
 ) PlanService {
 	return &planService{
 		logger:        logger,
 		agentRegistry: agentRegistry,
 		scmProvider:   scmProvider,
 		jobs:          jobs,
+		locks:         locks,
 	}
 }
 
@@ -110,6 +114,26 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 			return fmt.Errorf("failed to generate job ID for stack %q in repository %s: %w", stack.Name, plan.Repo, err)
 		}
 
+		if err := s.locks.Create(ctx, &models.ProjectLock{
+			Repo:      plan.Repo,
+			StackName: stack.Name,
+			Workspace: "default",
+			Dir:       stack.Dir,
+			CommitSHA: plan.CommitSHA,
+			LockedBy:  plan.TriggerUser,
+			PRNumber:  int32(plan.PRNumber),
+		}); err != nil {
+			if errors.Is(err, repository.ErrLockExists) {
+				existing, getErr := s.locks.Get(ctx, plan.Repo, stack.Name, "default")
+				if getErr != nil {
+					return fmt.Errorf("failed to fetch lock for stack %q in repository %s: %w", stack.Name, plan.Repo, getErr)
+				}
+				s.logLockedStack(plan, stack.Name, existing)
+				continue
+			}
+			return fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, plan.Repo, err)
+		}
+
 		if err := s.jobs.Create(ctx, &models.Job{
 			ID:        jobID,
 			Repo:      plan.Repo,
@@ -119,6 +143,12 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 			CommitSHA: plan.CommitSHA,
 			Status:    models.JobStatusPending,
 		}); err != nil {
+			if delErr := s.locks.Delete(ctx, plan.Repo, stack.Name, "default"); delErr != nil {
+				return fmt.Errorf(
+					"failed to create job for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
+					stack.Name, plan.Repo, plan.PRNumber, err, delErr,
+				)
+			}
 			return fmt.Errorf("failed to create job for stack %q in repository %s pull request #%d: %w", stack.Name, plan.Repo, plan.PRNumber, err)
 		}
 
@@ -146,6 +176,18 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 				},
 			},
 		}); err != nil {
+			if delErr := s.locks.Delete(ctx, plan.Repo, stack.Name, "default"); delErr != nil {
+				return fmt.Errorf(
+					"failed to dispatch plan command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
+					stack.Agent, stack.Name, plan.Repo, plan.PRNumber, err, delErr,
+				)
+			}
+			if delErr := s.jobs.Delete(ctx, jobID); delErr != nil {
+				return fmt.Errorf(
+					"failed to dispatch plan command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to delete job: %v)",
+					stack.Agent, stack.Name, plan.Repo, plan.PRNumber, err, delErr,
+				)
+			}
 			return fmt.Errorf("failed to dispatch plan command to agent %q for stack %q in repository %s pull request #%d: %w", stack.Agent, stack.Name, plan.Repo, plan.PRNumber, err)
 		}
 
@@ -175,4 +217,22 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 
 func newJobID() (string, error) {
 	return uuid.NewString(), nil
+}
+
+func (s *planService) logLockedStack(plan command.PlanCommand, stackName string, lock *models.ProjectLock) {
+	// TODO: This should output to the SCM PR
+	lockedPR := int32(0)
+	lockedBy := ""
+	if lock != nil {
+		lockedPR = lock.PRNumber
+		lockedBy = lock.LockedBy
+	}
+	s.logger.Warn(
+		"Skipping stack because it is locked",
+		"repo", plan.Repo,
+		"pr", plan.PRNumber,
+		"stack", stackName,
+		"locked_pr", lockedPR,
+		"locked_by", lockedBy,
+	)
 }

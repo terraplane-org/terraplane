@@ -22,13 +22,13 @@ type manager struct {
 	runner         Runner
 }
 
-func NewManager(logger log.Logger, workspaceDir, terraformBinDir, defaultTerraformVersion string) Manager {
+func NewManager(logger log.Logger, workspaceDir, terraformBinDir, defaultTerraformVersion, jobID string) Manager {
 	return &manager{
 		logger:         logger,
 		workspaceDir:   workspaceDir,
 		defaultVersion: defaultTerraformVersion,
 		versionManager: NewVersionManager(logger, terraformBinDir),
-		runner:         NewRunner(),
+		runner:         NewRunner(jobID),
 	}
 }
 
