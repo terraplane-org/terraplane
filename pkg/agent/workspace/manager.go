@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,18 +37,28 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 		return "", fmt.Errorf("SSH key not found at %q: %w", m.sshKeyPath, err)
 	}
 
-	parentDir := m.workDir
-	if parentDir != "" {
-		if err := os.MkdirAll(parentDir, 0o755); err != nil {
-			return "", fmt.Errorf("failed to create work directory %q: %w", parentDir, err)
-		}
+	if m.workDir == "" {
+		return "", fmt.Errorf("AGENT_WORK_DIR is not configured; a work directory is required to provision workspaces")
+	}
+	if err := os.MkdirAll(m.workDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create work directory %q: %w", m.workDir, err)
 	}
 
-	sanitizedRepo := strings.ReplaceAll(repo, "/", "-")
-	repoDirPath := filepath.Join(parentDir, fmt.Sprintf("terraplane-workspace-%s-%s-%s", sanitizedRepo, revision, stack))
+	// os.Root confines every filesystem operation below to m.workDir. Any repo,
+	// revision, or stack value that would otherwise escape the work directory
+	// (path separators, "..", symlinks) fails safely instead of touching the
+	// host filesystem, so no manual path sanitization is required.
+	root, err := os.OpenRoot(m.workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to open work directory %q: %w", m.workDir, err)
+	}
+	defer func() { _ = root.Close() }()
 
-	if _, err := os.Stat(repoDirPath); err == nil {
-		if workspaceReady(repoDirPath) {
+	dirName := workspaceDirName(repo, revision, stack)
+	repoDirPath := filepath.Join(m.workDir, dirName)
+
+	if info, err := root.Stat(dirName); err == nil {
+		if info.IsDir() && workspaceReady(repoDirPath) {
 			m.logger.Info(
 				"Using existing workspace",
 				"repo", repo,
@@ -65,22 +77,23 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 			"stack", stack,
 			"path", repoDirPath,
 		)
-		if err := os.RemoveAll(repoDirPath); err != nil {
+		if err := root.RemoveAll(dirName); err != nil {
 			return "", fmt.Errorf("failed to remove incomplete workspace %q: %w", repoDirPath, err)
 		}
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("failed to stat workspace directory %q: %w", repoDirPath, err)
 	}
 
-	err := os.Mkdir(repoDirPath, 0o755)
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary directory: %w", err)
+	m.pruneStaleWorkspaces(root, repo, stack, dirName)
+
+	if err := root.Mkdir(dirName, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create workspace directory %q: %w", repoDirPath, err)
 	}
 
 	ok := false
 	defer func() {
 		if !ok {
-			_ = os.RemoveAll(repoDirPath)
+			_ = root.RemoveAll(dirName)
 		}
 	}()
 
@@ -168,6 +181,53 @@ func workspaceReady(dir string) bool {
 		return false
 	}
 	return true
+}
+
+var pathSlug = strings.NewReplacer("/", "-", `\`, "-")
+
+func workspaceDirName(repo, revision, stack string) string {
+	return fmt.Sprintf(
+		"terraplane-workspace-%s-%s-%s",
+		pathSlug.Replace(repo),
+		pathSlug.Replace(revision),
+		pathSlug.Replace(stack),
+	)
+}
+
+func (m *manager) pruneStaleWorkspaces(root *os.Root, repo, stack, keepDirName string) {
+	prefix := fmt.Sprintf("terraplane-workspace-%s-", pathSlug.Replace(repo))
+	suffix := fmt.Sprintf("-%s", pathSlug.Replace(stack))
+
+	dir, err := root.Open(".")
+	if err != nil {
+		m.logger.Error("Failed to open work directory for pruning", "error", err)
+		return
+	}
+	defer func() { _ = dir.Close() }()
+
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		m.logger.Error("Failed to list workspaces for pruning", "error", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == keepDirName {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+
+		m.logger.Info("Removing stale workspace", "path", filepath.Join(m.workDir, name))
+		if err := root.RemoveAll(name); err != nil {
+			m.logger.Error("Failed to remove stale workspace", "name", name, "error", err)
+		}
+	}
 }
 
 func scmHost(repo string) string {

@@ -89,6 +89,7 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		Success: true,
 		Output:  output,
 	}); writeErr != nil {
+		err = writeErr
 		h.logger.Error(
 			"Failed to send plan result to orchestrator",
 			"job_id", jobID,

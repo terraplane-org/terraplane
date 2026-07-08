@@ -3,6 +3,8 @@ package terraform
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/xyzjace/terraplane/internal/process"
@@ -35,6 +37,10 @@ func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
 
 func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error) {
 	planFile := fmt.Sprintf("plan-%s.tfplan", r.jobID)
+	if err := removeStalePlanFiles(workDir, planFile); err != nil {
+		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)
+	}
+
 	args := []string{"plan", "-no-color", "-input=false", "-out=" + planFile}
 	if planFlags != "" {
 		args = append(args, strings.Fields(planFlags)...)
@@ -57,6 +63,22 @@ func (r *runner) run(ctx context.Context, terraformBin, workDir string, args ...
 		Args: args,
 		Dir:  workDir,
 	})
+}
+
+func removeStalePlanFiles(workDir, keepPlanFile string) error {
+	matches, err := filepath.Glob(filepath.Join(workDir, "plan-*.tfplan"))
+	if err != nil {
+		return err
+	}
+	for _, path := range matches {
+		if filepath.Base(path) == keepPlanFile {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func commandOutput(result process.Result) string {
