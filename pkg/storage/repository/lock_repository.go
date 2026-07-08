@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 )
+
+var ErrLockExists = errors.New("project lock already exists")
 
 type LockRepository interface {
 	Get(ctx context.Context, repo, stackName, workspace string) (*models.ProjectLock, error)

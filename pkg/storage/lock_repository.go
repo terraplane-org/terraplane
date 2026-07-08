@@ -2,9 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
+	"gorm.io/gorm"
 )
 
 type lockRepository struct {
@@ -20,6 +22,9 @@ func (r *lockRepository) Get(ctx context.Context, repo, stackName, workspace str
 	err := r.db.pool.WithContext(ctx).
 		Where("repo = ? AND stack_name = ? AND workspace = ?", repo, stackName, workspace).
 		First(&lock).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +32,14 @@ func (r *lockRepository) Get(ctx context.Context, repo, stackName, workspace str
 }
 
 func (r *lockRepository) Create(ctx context.Context, lock *models.ProjectLock) error {
-	return r.db.pool.WithContext(ctx).Create(lock).Error
+	err := r.db.pool.WithContext(ctx).Create(lock).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return repository.ErrLockExists
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *lockRepository) Delete(ctx context.Context, repo, stackName, workspace string) error {
