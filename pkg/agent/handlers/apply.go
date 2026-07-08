@@ -13,6 +13,8 @@ func (h *Handlers) handleApply(ctx context.Context, jobID string, cmd *terraplan
 		"job_id", jobID,
 		"repo", cmd.GetRepo(),
 		"pr", cmd.GetPrNumber(),
+		"stack", cmd.GetStackName(),
+		"dir", cmd.GetDir(),
 		"commit", cmd.GetCommitHash(),
 	)
 

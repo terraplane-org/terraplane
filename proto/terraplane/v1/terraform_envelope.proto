@@ -36,6 +36,8 @@ message ApplyCommand {
   string repo = 1;
   int32 pr_number = 2;
   string commit_hash = 3;
+  string stack_name = 4;
+  string dir = 5;
 } 
 message ApplyResult {
   bool success = 1;

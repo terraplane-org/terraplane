@@ -139,6 +139,8 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 					Repo:       apply.Repo,
 					PrNumber:   int32(apply.PRNumber),
 					CommitHash: apply.CommitSHA,
+					StackName:  stack.Name,
+					Dir:        stack.Dir,
 				},
 			},
 		}); err != nil {
