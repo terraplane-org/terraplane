@@ -15,6 +15,7 @@ import (
 
 type Manager interface {
 	ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
+	FetchWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
 	RemoveWorkspace(ctx context.Context) error
 }
 
@@ -100,6 +101,35 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 	ok, err = m.cloneRepo(ctx, repo, revision, repoDirPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to clone repository %s at revision %s: %w", repo, revision, err)
+	}
+
+	m.workingDir = repoDirPath
+	return repoDirPath, nil
+}
+
+func (m *manager) FetchWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error) {
+	if m.workDir == "" {
+		return "", fmt.Errorf("AGENT_WORK_DIR is not configured; a work directory is required to fetch workspaces")
+	}
+
+	root, err := os.OpenRoot(m.workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to open work directory %q: %w", m.workDir, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	dirName := workspaceDirName(repo, revision, stack)
+	repoDirPath := filepath.Join(m.workDir, dirName)
+
+	info, err := root.Stat(dirName)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat workspace directory %q: %w", repoDirPath, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace path %q is not a directory", repoDirPath)
+	}
+	if !workspaceReady(repoDirPath) {
+		return "", fmt.Errorf("workspace %q is not ready", repoDirPath)
 	}
 
 	m.workingDir = repoDirPath

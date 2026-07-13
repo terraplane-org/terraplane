@@ -384,6 +384,8 @@ type ApplyCommand struct {
 	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	PrNumber      int32                  `protobuf:"varint,2,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	CommitHash    string                 `protobuf:"bytes,3,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
+	StackName     string                 `protobuf:"bytes,4,opt,name=stack_name,json=stackName,proto3" json:"stack_name,omitempty"`
+	Dir           string                 `protobuf:"bytes,5,opt,name=dir,proto3" json:"dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -435,6 +437,20 @@ func (x *ApplyCommand) GetPrNumber() int32 {
 func (x *ApplyCommand) GetCommitHash() string {
 	if x != nil {
 		return x.CommitHash
+	}
+	return ""
+}
+
+func (x *ApplyCommand) GetStackName() string {
+	if x != nil {
+		return x.StackName
+	}
+	return ""
+}
+
+func (x *ApplyCommand) GetDir() string {
+	if x != nil {
+		return x.Dir
 	}
 	return ""
 }
@@ -643,12 +659,15 @@ const file_terraplane_v1_terraform_envelope_proto_rawDesc = "" +
 	"PlanResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"`\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\x91\x01\n" +
 	"\fApplyCommand\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x1b\n" +
 	"\tpr_number\x18\x02 \x01(\x05R\bprNumber\x12\x1f\n" +
 	"\vcommit_hash\x18\x03 \x01(\tR\n" +
-	"commitHash\"U\n" +
+	"commitHash\x12\x1d\n" +
+	"\n" +
+	"stack_name\x18\x04 \x01(\tR\tstackName\x12\x10\n" +
+	"\x03dir\x18\x05 \x01(\tR\x03dir\"U\n" +
 	"\vApplyResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n" +

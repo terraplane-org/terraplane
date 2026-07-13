@@ -13,6 +13,7 @@ import (
 type Runner interface {
 	Init(ctx context.Context, terraformBin, workDir string) error
 	Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error)
+	Apply(ctx context.Context, terraformBin, workDir string) (string, error)
 }
 
 type runner struct {
@@ -36,7 +37,7 @@ func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
 }
 
 func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error) {
-	planFile := fmt.Sprintf("plan-%s.tfplan", r.jobID)
+	planFile := "plan.tfplan"
 	if err := removeStalePlanFiles(workDir, planFile); err != nil {
 		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)
 	}
@@ -53,6 +54,34 @@ func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags stri
 	output := commandOutput(result)
 	if result.ExitCode != 0 {
 		return output, fmt.Errorf("terraform plan failed with exit code %d", result.ExitCode)
+	}
+	return output, nil
+}
+
+func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (string, error) {
+	// TODO: This uses the plan job id which changes for the apply job. What to do here? We really need to think about what jobs actually mean, and what locking really means
+	planFile := "plan.tfplan"
+	if err := removeStalePlanFiles(workDir, planFile); err != nil {
+		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)
+	}
+
+	planPath := filepath.Join(workDir, planFile)
+	if _, err := os.Stat(planPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("plan file %q not found in %q", planFile, workDir)
+		}
+		return "", fmt.Errorf("stat plan file %q: %w", planPath, err)
+	}
+
+	args := []string{"apply", "-no-color", "-input=false", planFile}
+
+	result, err := r.run(ctx, terraformBin, workDir, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to run terraform apply: %w", err)
+	}
+	output := commandOutput(result)
+	if result.ExitCode != 0 {
+		return output, fmt.Errorf("terraform apply failed with exit code %d", result.ExitCode)
 	}
 	return output, nil
 }
