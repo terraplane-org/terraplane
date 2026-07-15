@@ -39,6 +39,27 @@ func PlanResultComment(job *models.Job, success bool, output, errMsg string) str
 	return b.String()
 }
 
+// ApplyResultComment formats an apply job result as a GitHub PR comment body.
+func ApplyResultComment(job *models.Job, success bool, output, errMsg string) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "`%s` apply · %s\n", job.StackName, statusEmoji(success))
+
+	if errMsg = strings.TrimSpace(errMsg); errMsg != "" {
+		b.WriteString("\n")
+		writeFencedBlock(&b, errMsg)
+	}
+
+	if output = strings.TrimSpace(output); output != "" {
+		b.WriteString("\n<details>\n")
+		b.WriteString("<summary>apply</summary>\n\n")
+		writeFencedBlock(&b, output)
+		b.WriteString("</details>\n")
+	}
+
+	return b.String()
+}
+
 func statusEmoji(success bool) string {
 	if success {
 		return "✅"

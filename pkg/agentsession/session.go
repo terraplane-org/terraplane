@@ -170,6 +170,19 @@ func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.Terra
 		return errors.New("apply result is nil")
 	}
 
+	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
+	comment := feedback.ApplyResultComment(job, applyResult.GetSuccess(), applyResult.GetOutput(), applyResult.GetError())
+	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		s.logger.Error(
+			"Failed to write apply result comment",
+			"job_id", jobId,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+
 	return nil
 }
 
