@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 type Client interface {
 	getCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
 	getFile(ctx context.Context, repo string, path string, revision string) (string, error)
+	writeComment(ctx context.Context, repo string, prNumber int, body string) error
 }
 
 type client struct {
@@ -69,7 +71,7 @@ func (c *client) getFile(ctx context.Context, repo string, path string, revision
 }
 
 func (c *client) getJSON(ctx context.Context, u string, out any) error {
-	req, err := c.newRequest(ctx, http.MethodGet, u)
+	req, err := c.newRequest(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err
 	}
@@ -93,18 +95,47 @@ func (c *client) getJSON(ctx context.Context, u string, out any) error {
 	return nil
 }
 
-func (c *client) newRequest(ctx context.Context, method, u string) (*http.Request, error) {
+func (c *client) newRequest(ctx context.Context, method, u string, body io.Reader) (*http.Request, error) {
 	if c.accessToken == "" {
 		return nil, fmt.Errorf("GitHub access token is not configured. Please set ORCHESTRATOR_GITHUB_ACCESS_TOKEN in the environment")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub API request to %s: %w", u, err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	return req, nil
+}
+
+func (c *client) writeComment(ctx context.Context, repo string, prNumber int, body string) error {
+	u := fmt.Sprintf("%s/repos/%s/issues/%d/comments", c.apiURL, repo, prNumber)
+	payloadBytes, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return fmt.Errorf("failed to marshal comment payload for repository %s PR #%d: %w", repo, prNumber, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute GitHub API request to write comment to repository %s PR #%d: %w", repo, prNumber, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("GitHub API request to write comment to repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
 }
 
 func appendRefQuery(u, ref string) (string, error) {
