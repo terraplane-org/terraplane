@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -110,12 +111,21 @@ func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.Terraf
 	job.Output = planResult.Output
 	job.ErrorMsg = planResult.Error
 
-	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
-	comment := fmt.Sprintf("Plan result for stack %s:\n\nSuccess: %t\nOutput:\n```\n%s\n```\nError:\n```\n%s\n```", job.StackName, planResult.GetSuccess(), planResult.Output, planResult.Error)
-	s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment)
-
 	if err := s.jobRepository.Update(ctx, job); err != nil {
 		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
+	}
+
+	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
+	comment := feedback.PlanResultComment(job, planResult.GetSuccess(), planResult.GetOutput(), planResult.GetError())
+	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		s.logger.Error(
+			"Failed to write plan result comment",
+			"job_id", jobId,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
 	}
 
 	return nil
