@@ -37,6 +37,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		webserver.NewHandler,
 		webserver.NewServer,
 		orchestrator.NewManager,
+		github.NewPublisher,
 	)
 	return nil, nil
 }
