@@ -134,6 +134,7 @@ func (c *client) writeComment(ctx context.Context, repo string, prNumber int, bo
 		respBody, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("GitHub API request to write comment to repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
 }
 
