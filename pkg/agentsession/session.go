@@ -7,7 +7,9 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
@@ -28,6 +30,7 @@ type session struct {
 	writeMu        sync.Mutex
 	jobRepository  repository.JobRepository
 	lockRepository repository.LockRepository
+	scmPublisher   scm.Publisher
 }
 
 func (s *session) ID() string {
@@ -112,6 +115,19 @@ func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.Terraf
 		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
 	}
 
+	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
+	comment := feedback.PlanResultComment(job, planResult.GetSuccess(), planResult.GetOutput(), planResult.GetError())
+	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		s.logger.Error(
+			"Failed to write plan result comment",
+			"job_id", jobId,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+
 	return nil
 }
 
@@ -152,6 +168,19 @@ func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.Terra
 
 	if applyResult == nil {
 		return errors.New("apply result is nil")
+	}
+
+	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
+	comment := feedback.ApplyResultComment(job, applyResult.GetSuccess(), applyResult.GetOutput(), applyResult.GetError())
+	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		s.logger.Error(
+			"Failed to write apply result comment",
+			"job_id", jobId,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
 	}
 
 	return nil
