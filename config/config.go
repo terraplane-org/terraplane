@@ -25,6 +25,7 @@ type Config struct {
 	AgentDefaultTerraformVersion    string        `mapstructure:"AGENT_DEFAULT_TERRAFORM_VERSION"`
 	DatabaseDriver                  string        `mapstructure:"DATABASE_DRIVER"`
 	DatabaseURL                     string        `mapstructure:"DATABASE_URL"`
+	SharedAuthToken                 string        `mapstructure:"SHARED_AUTH_TOKEN"`
 }
 
 func NewConfig() (*Config, error) {
@@ -71,4 +72,5 @@ func init() {
 	viper.SetDefault("AGENT_DEFAULT_TERRAFORM_VERSION", "1.15.6")
 	viper.SetDefault("DATABASE_DRIVER", "postgres")
 	viper.SetDefault("DATABASE_URL", "")
+	viper.SetDefault("SHARED_AUTH_TOKEN", "")
 }

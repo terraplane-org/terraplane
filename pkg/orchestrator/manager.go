@@ -23,9 +23,14 @@ type manager struct {
 	logger              log.Logger
 	server              webserver.Server
 	db                  *storage.DB
+	sharedAuthToken     string
 }
 
 func (o *manager) Start(ctx context.Context) error {
+	if o.sharedAuthToken == "" {
+		return fmt.Errorf("SHARED_AUTH_TOKEN is not configured")
+	}
+
 	if err := o.db.RequireCurrentSchema(ctx); err != nil {
 		return err
 	}
@@ -69,5 +74,6 @@ func NewManager(config *config.Config, logger log.Logger, server webserver.Serve
 		logger:              logger,
 		server:              server,
 		db:                  db,
+		sharedAuthToken:     config.SharedAuthToken,
 	}
 }

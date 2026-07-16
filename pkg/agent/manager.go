@@ -6,6 +6,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/internal/auth"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -22,6 +23,7 @@ type manager struct {
 	workDir                 string
 	terraformBinDir         string
 	defaultTerraformVersion string
+	sharedAuthToken         string
 }
 
 func (o *manager) Start(ctx context.Context) error {
@@ -32,7 +34,16 @@ func (o *manager) Start(ctx context.Context) error {
 
 	o.logger.Info("Starting agent...")
 
-	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, nil)
+	if o.sharedAuthToken == "" {
+		o.logger.Error("Shared auth token is not set. Please set the SHARED_AUTH_TOKEN environment variable.")
+		return fmt.Errorf("shared auth token is not set")
+	}
+
+	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, &websocket.DialOptions{
+		HTTPHeader: map[string][]string{
+			"Authorization": {auth.BearerHeader(o.sharedAuthToken)},
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
@@ -85,5 +96,6 @@ func NewManager(config *config.Config, logger log.Logger) Manager {
 		terraformBinDir:         config.AgentTerraformBinDir,
 		defaultTerraformVersion: config.AgentDefaultTerraformVersion,
 		logger:                  logger,
+		sharedAuthToken:         config.SharedAuthToken,
 	}
 }

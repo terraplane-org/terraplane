@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/internal/auth"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -27,6 +29,7 @@ type handler struct {
 	planService     services.PlanService
 	applyService    services.ApplyService
 	unlockService   services.UnlockService
+	sharedAuthToken string
 }
 
 func NewHandler(
@@ -37,6 +40,7 @@ func NewHandler(
 	planService services.PlanService,
 	applyService services.ApplyService,
 	unlockService services.UnlockService,
+	config *config.Config,
 ) http.Handler {
 	h := &handler{
 		logger:          logger,
@@ -47,6 +51,7 @@ func NewHandler(
 		planService:     planService,
 		applyService:    applyService,
 		unlockService:   unlockService,
+		sharedAuthToken: config.SharedAuthToken,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -159,6 +164,12 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
+	if !h.validateWebsocketToken(r) {
+		h.logger.Warn("Rejected websocket connection with invalid auth token", "remote_addr", r.RemoteAddr)
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		h.logger.Error("Failed to accept websocket connection", "error", err)
@@ -196,6 +207,10 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if err := session.Run(r.Context()); err != nil {
 		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
 	}
+}
+
+func (h *handler) validateWebsocketToken(r *http.Request) bool {
+	return auth.BearerTokenMatches(r.Header.Get("Authorization"), h.sharedAuthToken)
 }
 
 func agentIDFromHello(hello *terraplanev1.WebsocketEnvelope) (string, error) {
