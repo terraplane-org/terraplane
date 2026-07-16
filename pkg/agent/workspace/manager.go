@@ -20,11 +20,12 @@ type Manager interface {
 	RemoveWorkspace(ctx context.Context, path string) error
 }
 
+//go:generate mockgen -source=manager.go -destination=mock_workspace/mock_manager.go -package=mock_workspace
+
 type manager struct {
 	logger     log.Logger
 	sshKeyPath string
 	workDir    string
-	workingDir string
 }
 
 func NewManager(cfg *config.Config, logger log.Logger) Manager {
@@ -72,7 +73,6 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 				"stack", stack,
 				"path", repoDirPath,
 			)
-			m.workingDir = repoDirPath
 			return repoDirPath, nil
 		}
 
@@ -108,7 +108,6 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 		return "", fmt.Errorf("failed to clone repository %s at revision %s: %w", repo, revision, err)
 	}
 
-	m.workingDir = repoDirPath
 	return repoDirPath, nil
 }
 
@@ -137,7 +136,6 @@ func (m *manager) FetchWorkspace(ctx context.Context, repo string, revision stri
 		return "", fmt.Errorf("workspace %q is not ready", repoDirPath)
 	}
 
-	m.workingDir = repoDirPath
 	return repoDirPath, nil
 }
 
@@ -168,7 +166,6 @@ func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, r
 		return false, fmt.Errorf("failed to checkout revision %s: %w", revision, err)
 	}
 
-	m.workingDir = repoDirPath
 	return true, nil
 }
 

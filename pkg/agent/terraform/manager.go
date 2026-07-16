@@ -16,6 +16,8 @@ type Manager interface {
 	RunApply(ctx context.Context, workspaceDir, stackName string) (string, error)
 }
 
+//go:generate mockgen -source=manager.go -destination=mock_terraform/mock_manager.go -package=mock_terraform
+
 type manager struct {
 	logger         log.Logger
 	defaultVersion string

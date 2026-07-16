@@ -16,6 +16,8 @@ type Runner interface {
 	Apply(ctx context.Context, terraformBin, workDir string) (string, error)
 }
 
+//go:generate mockgen -source=runner.go -destination=mock_terraform/mock_runner.go -package=mock_terraform
+
 type runner struct{}
 
 func NewRunner() Runner {
