@@ -7,6 +7,8 @@ import (
 	"github.com/xyzjace/terraplane/pkg/log"
 )
 
+//go:generate mockgen -source=registry.go -destination=mock_agentsession/mock_registry.go -package=mock_agentsession
+
 type Registry interface {
 	Register(ctx context.Context, session Session) error
 	Unregister(ctx context.Context, id string) error

@@ -16,6 +16,8 @@ import (
 	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
 
+//go:generate mockgen -source=session.go -destination=mock_agentsession/mock_session.go -package=mock_agentsession
+
 type Session interface {
 	ID() string
 	Run(ctx context.Context) error

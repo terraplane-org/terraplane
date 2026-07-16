@@ -50,7 +50,7 @@ func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 }
 
 func (p *provider) GetFile(fileName string, revision string, repo string) (string, error) {
-	return p.client.getFile(context.Background(), repo, fileName, revision)
+	return p.client.GetFile(context.Background(), repo, fileName, revision)
 }
 
 func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, error) {
@@ -98,7 +98,7 @@ func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, err
 		"user", payload.Comment.User.Login,
 	)
 
-	commitSHA, err := p.client.getCommitSHA(context.Background(), repo, prNumber)
+	commitSHA, err := p.client.GetCommitSHA(context.Background(), repo, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve pull request head commit for repository %s PR #%d: %w", repo, prNumber, err)
 	}

@@ -9,6 +9,8 @@ import (
 
 var ErrLockExists = errors.New("project lock already exists")
 
+//go:generate mockgen -source=lock_repository.go -destination=mock_repository/mock_lock_repository.go -package=mock_repository
+
 type LockRepository interface {
 	Get(ctx context.Context, repo, stackName, workspace string) (*models.ProjectLock, error)
 	Create(ctx context.Context, lock *models.ProjectLock) error

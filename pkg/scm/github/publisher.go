@@ -14,7 +14,7 @@ type publisher struct {
 
 // WriteComment implements scm.Publisher.
 func (p *publisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
-	if err := p.client.writeComment(ctx, repo, prNumber, body); err != nil {
+	if err := p.client.WriteComment(ctx, repo, prNumber, body); err != nil {
 		p.logger.Error("Failed to write PR comment", "repo", repo, "pr", prNumber, "error", err)
 		return err
 	}
