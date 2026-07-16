@@ -7,6 +7,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/auth"
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -16,14 +18,12 @@ type Manager interface {
 }
 
 type manager struct {
-	logger                  log.Logger
-	orchestratorURL         string
-	id                      string
-	sshKeyPath              string
-	workDir                 string
-	terraformBinDir         string
-	defaultTerraformVersion string
-	sharedAuthToken         string
+	logger           log.Logger
+	orchestratorURL  string
+	id               string
+	sharedAuthToken  string
+	workspaceManager workspace.Manager
+	terraformManager terraform.Manager
 }
 
 func (o *manager) Start(ctx context.Context) error {
@@ -48,7 +48,7 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
 
-	session := NewSession(o.id, conn, o.logger, o.sshKeyPath, o.workDir, o.terraformBinDir, o.defaultTerraformVersion)
+	session := NewSession(o.id, conn, o.logger, o.workspaceManager, o.terraformManager)
 
 	if err := session.Hello(ctx); err != nil {
 		session.CloseNow()
@@ -89,13 +89,11 @@ func (o *manager) Start(ctx context.Context) error {
 
 func NewManager(config *config.Config, logger log.Logger) Manager {
 	return &manager{
-		id:                      config.AgentID,
-		orchestratorURL:         config.AgentOrchestratorURL,
-		sshKeyPath:              config.AgentSCMSSHKeyPath,
-		workDir:                 config.AgentWorkDir,
-		terraformBinDir:         config.AgentTerraformBinDir,
-		defaultTerraformVersion: config.AgentDefaultTerraformVersion,
-		logger:                  logger,
-		sharedAuthToken:         config.SharedAuthToken,
+		id:               config.AgentID,
+		orchestratorURL:  config.AgentOrchestratorURL,
+		logger:           logger,
+		sharedAuthToken:  config.SharedAuthToken,
+		workspaceManager: workspace.NewManager(logger, config.AgentSCMSSHKeyPath, config.AgentWorkDir),
+		terraformManager: terraform.NewManager(logger, config.AgentTerraformBinDir, config.AgentDefaultTerraformVersion),
 	}
 }
