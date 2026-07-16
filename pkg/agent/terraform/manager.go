@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
@@ -22,11 +23,11 @@ type manager struct {
 	runner         Runner
 }
 
-func NewManager(logger log.Logger, terraformBinDir, defaultTerraformVersion string) Manager {
+func NewManager(cfg *config.Config, logger log.Logger) Manager {
 	return &manager{
 		logger:         logger,
-		defaultVersion: defaultTerraformVersion,
-		versionManager: NewVersionManager(logger, terraformBinDir),
+		defaultVersion: cfg.AgentDefaultTerraformVersion,
+		versionManager: NewVersionManager(logger, cfg.AgentTerraformBinDir),
 		runner:         NewRunner(),
 	}
 }

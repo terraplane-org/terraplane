@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/log"
 )
@@ -26,8 +27,12 @@ type manager struct {
 	workingDir string
 }
 
-func NewManager(logger log.Logger, sshKeyPath, workDir string) Manager {
-	return &manager{logger: logger, sshKeyPath: sshKeyPath, workDir: workDir}
+func NewManager(cfg *config.Config, logger log.Logger) Manager {
+	return &manager{
+		logger:     logger,
+		sshKeyPath: cfg.AgentSCMSSHKeyPath,
+		workDir:    cfg.AgentWorkDir,
+	}
 }
 
 func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error) {

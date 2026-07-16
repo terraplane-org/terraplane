@@ -87,13 +87,18 @@ func (o *manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func NewManager(config *config.Config, logger log.Logger) Manager {
+func NewManager(
+	config *config.Config,
+	logger log.Logger,
+	workspaceManager workspace.Manager,
+	terraformManager terraform.Manager,
+) Manager {
 	return &manager{
 		id:               config.AgentID,
 		orchestratorURL:  config.AgentOrchestratorURL,
 		logger:           logger,
 		sharedAuthToken:  config.SharedAuthToken,
-		workspaceManager: workspace.NewManager(logger, config.AgentSCMSSHKeyPath, config.AgentWorkDir),
-		terraformManager: terraform.NewManager(logger, config.AgentTerraformBinDir, config.AgentDefaultTerraformVersion),
+		workspaceManager: workspaceManager,
+		terraformManager: terraformManager,
 	}
 }
