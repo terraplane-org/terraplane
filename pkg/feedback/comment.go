@@ -60,6 +60,24 @@ func ApplyResultComment(job *models.Job, success bool, output, errMsg string) st
 	return b.String()
 }
 
+// UnlockResultComment formats an unlock result as a GitHub PR comment body.
+func UnlockResultComment(stackName string, success bool, errMsg string) string {
+	var b strings.Builder
+
+	if stackName != "" {
+		fmt.Fprintf(&b, "`%s` unlock · %s\n", stackName, statusEmoji(success))
+	} else {
+		fmt.Fprintf(&b, "unlock · %s\n", statusEmoji(success))
+	}
+
+	if errMsg = strings.TrimSpace(errMsg); errMsg != "" {
+		b.WriteString("\n")
+		writeFencedBlock(&b, errMsg)
+	}
+
+	return b.String()
+}
+
 func statusEmoji(success bool) string {
 	if success {
 		return "✅"
