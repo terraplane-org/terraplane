@@ -16,7 +16,7 @@ import (
 type Manager interface {
 	ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
 	FetchWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
-	RemoveWorkspace(ctx context.Context) error
+	RemoveWorkspace(ctx context.Context, path string) error
 }
 
 type manager struct {
@@ -266,14 +266,13 @@ func scmHost(repo string) string {
 	return "github.com"
 }
 
-func (m *manager) RemoveWorkspace(ctx context.Context) error {
-	if m.workingDir == "" {
+func (m *manager) RemoveWorkspace(ctx context.Context, path string) error {
+	if path == "" {
 		return nil
 	}
-	err := os.RemoveAll(m.workingDir)
+	err := os.RemoveAll(path)
 	if err != nil {
 		return fmt.Errorf("failed to remove workspace: %w", err)
 	}
-	m.workingDir = ""
 	return nil
 }

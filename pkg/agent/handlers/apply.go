@@ -45,7 +45,7 @@ func (h *Handlers) handleApply(ctx context.Context, jobID string, cmd *terraplan
 	}
 
 	defer func() {
-		if removeErr := workspaceManager.RemoveWorkspace(ctx); removeErr != nil {
+		if removeErr := workspaceManager.RemoveWorkspace(ctx, workspaceDir); removeErr != nil {
 			h.logger.Error(
 				"Failed to remove workspace after apply",
 				"repo", cmd.GetRepo(),
