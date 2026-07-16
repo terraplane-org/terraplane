@@ -16,12 +16,10 @@ type Runner interface {
 	Apply(ctx context.Context, terraformBin, workDir string) (string, error)
 }
 
-type runner struct {
-	jobID string
-}
+type runner struct{}
 
-func NewRunner(jobID string) Runner {
-	return &runner{jobID: jobID}
+func NewRunner() Runner {
+	return &runner{}
 }
 
 func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
@@ -59,7 +57,6 @@ func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags stri
 }
 
 func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (string, error) {
-	// TODO: This uses the plan job id which changes for the apply job. What to do here? We really need to think about what jobs actually mean, and what locking really means
 	planFile := "plan.tfplan"
 	if err := removeStalePlanFiles(workDir, planFile); err != nil {
 		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)

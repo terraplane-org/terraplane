@@ -59,8 +59,8 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		}
 	}()
 
-	terraformManager := terraform.NewManager(h.logger, workspaceDir, h.terraformBinDir, h.defaultTerraformVersion, jobID)
-	output, err := terraformManager.RunPlan(ctx, cmd.GetStackName(), cmd.GetPlanFlags())
+	terraformManager := terraform.NewManager(h.logger, h.terraformBinDir, h.defaultTerraformVersion)
+	output, err := terraformManager.RunPlan(ctx, workspaceDir, cmd.GetStackName(), cmd.GetPlanFlags())
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform plan",

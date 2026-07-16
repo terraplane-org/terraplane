@@ -56,8 +56,8 @@ func (h *Handlers) handleApply(ctx context.Context, jobID string, cmd *terraplan
 		}
 	}()
 
-	terraformManager := terraform.NewManager(h.logger, workspaceDir, h.terraformBinDir, h.defaultTerraformVersion, jobID)
-	output, err := terraformManager.RunApply(ctx, cmd.GetStackName())
+	terraformManager := terraform.NewManager(h.logger, h.terraformBinDir, h.defaultTerraformVersion)
+	output, err := terraformManager.RunApply(ctx, workspaceDir, cmd.GetStackName())
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform apply",
