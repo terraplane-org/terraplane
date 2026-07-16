@@ -14,10 +14,12 @@ import (
 	"github.com/xyzjace/terraplane/config"
 )
 
+//go:generate mockgen -source=client.go -destination=mock_github/mock_client.go -package=mock_github
+
 type Client interface {
-	getCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
-	getFile(ctx context.Context, repo string, path string, revision string) (string, error)
-	writeComment(ctx context.Context, repo string, prNumber int, body string) error
+	GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
+	GetFile(ctx context.Context, repo string, path string, revision string) (string, error)
+	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
 }
 
 type client struct {
@@ -26,7 +28,7 @@ type client struct {
 	apiURL      string
 }
 
-func (c *client) getCommitSHA(ctx context.Context, repo string, prNumber int) (string, error) {
+func (c *client) GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error) {
 	u := fmt.Sprintf("%s/repos/%s/pulls/%d", c.apiURL, repo, prNumber)
 	var resp struct {
 		Head struct {
@@ -43,7 +45,7 @@ func (c *client) getCommitSHA(ctx context.Context, repo string, prNumber int) (s
 	return resp.Head.SHA, nil
 }
 
-func (c *client) getFile(ctx context.Context, repo string, path string, revision string) (string, error) {
+func (c *client) GetFile(ctx context.Context, repo string, path string, revision string) (string, error) {
 	u := fmt.Sprintf("%s/repos/%s/contents/%s", c.apiURL, repo, path)
 	if revision != "" {
 		var err error
@@ -112,7 +114,7 @@ func (c *client) newRequest(ctx context.Context, method, u string, body io.Reade
 	return req, nil
 }
 
-func (c *client) writeComment(ctx context.Context, repo string, prNumber int, body string) error {
+func (c *client) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
 	u := fmt.Sprintf("%s/repos/%s/issues/%d/comments", c.apiURL, repo, prNumber)
 	payloadBytes, err := json.Marshal(map[string]string{"body": body})
 	if err != nil {
