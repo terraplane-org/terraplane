@@ -26,11 +26,21 @@ type manager struct {
 }
 
 func NewManager(cfg *config.Config, logger log.Logger) Manager {
+	return NewManagerWith(
+		logger,
+		cfg.AgentDefaultTerraformVersion,
+		NewVersionManager(logger, cfg.AgentTerraformBinDir),
+		NewRunner(),
+	)
+}
+
+// NewManagerWith constructs a Manager with explicit dependencies (useful in tests).
+func NewManagerWith(logger log.Logger, defaultVersion string, versionManager VersionManager, runner Runner) Manager {
 	return &manager{
 		logger:         logger,
-		defaultVersion: cfg.AgentDefaultTerraformVersion,
-		versionManager: NewVersionManager(logger, cfg.AgentTerraformBinDir),
-		runner:         NewRunner(),
+		defaultVersion: defaultVersion,
+		versionManager: versionManager,
+		runner:         runner,
 	}
 }
 

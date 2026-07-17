@@ -26,13 +26,23 @@ type manager struct {
 	logger     log.Logger
 	sshKeyPath string
 	workDir    string
+	runner     process.Runner
 }
 
 func NewManager(cfg *config.Config, logger log.Logger) Manager {
+	return NewManagerWith(cfg, logger, process.OSRunner{})
+}
+
+// NewManagerWith is like NewManager but allows injecting a Command Runner (useful in tests).
+func NewManagerWith(cfg *config.Config, logger log.Logger, runner process.Runner) Manager {
+	if runner == nil {
+		runner = process.OSRunner{}
+	}
 	return &manager{
 		logger:     logger,
 		sshKeyPath: cfg.AgentSCMSSHKeyPath,
 		workDir:    cfg.AgentWorkDir,
+		runner:     runner,
 	}
 }
 
@@ -170,7 +180,7 @@ func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, r
 }
 
 func (m *manager) scanHostKeys(ctx context.Context, host, path string) error {
-	result, err := process.Run(ctx, process.Command{
+	result, err := m.runner.Run(ctx, process.Command{
 		Name: "ssh-keyscan",
 		Args: []string{host},
 	})
@@ -190,7 +200,7 @@ func (m *manager) scanHostKeys(ctx context.Context, host, path string) error {
 }
 
 func (m *manager) runGit(ctx context.Context, dir, gitSSH string, args ...string) error {
-	result, err := process.Run(ctx, process.Command{
+	result, err := m.runner.Run(ctx, process.Command{
 		Name: "git",
 		Args: args,
 		Dir:  dir,
