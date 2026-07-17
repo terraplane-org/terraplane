@@ -15,11 +15,9 @@ func ParseBearerToken(header string) (string, bool) {
 	if !strings.HasPrefix(header, bearerPrefix) {
 		return "", false
 	}
-	token := strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix))
-	if token == "" {
-		return "", false
-	}
-	return token, true
+	// TrimSpace on the full header already turns a bare "Bearer " into "Bearer",
+	// which fails the prefix check above, so the remaining suffix is non-empty.
+	return strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix)), true
 }
 
 // BearerTokenMatches reports whether header carries the expected bearer secret.
