@@ -9,7 +9,6 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
-	"github.com/xyzjace/terraplane/pkg/storage"
 	"github.com/xyzjace/terraplane/pkg/webserver"
 	"golang.org/x/sync/errgroup"
 )
@@ -18,11 +17,16 @@ type Manager interface {
 	Start(ctx context.Context) error
 }
 
+// SchemaChecker verifies the database schema is migrated before serving traffic.
+type SchemaChecker interface {
+	RequireCurrentSchema(ctx context.Context) error
+}
+
 type manager struct {
 	serverShutdownTimer time.Duration
 	logger              log.Logger
 	server              webserver.Server
-	db                  *storage.DB
+	schema              SchemaChecker
 	sharedAuthToken     string
 }
 
@@ -31,7 +35,7 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("SHARED_AUTH_TOKEN is not configured")
 	}
 
-	if err := o.db.RequireCurrentSchema(ctx); err != nil {
+	if err := o.schema.RequireCurrentSchema(ctx); err != nil {
 		return err
 	}
 
@@ -68,12 +72,12 @@ func (o *manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func NewManager(config *config.Config, logger log.Logger, server webserver.Server, db *storage.DB) Manager {
+func NewManager(config *config.Config, logger log.Logger, server webserver.Server, schema SchemaChecker) Manager {
 	return &manager{
 		serverShutdownTimer: config.ServerShutdownTimer,
 		logger:              logger,
 		server:              server,
-		db:                  db,
+		schema:              schema,
 		sharedAuthToken:     config.SharedAuthToken,
 	}
 }

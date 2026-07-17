@@ -22,7 +22,15 @@ type Result struct {
 	Stderr   string
 }
 
-func Run(ctx context.Context, cmd Command) (Result, error) {
+// Runner executes external commands. Production code uses OSRunner.
+type Runner interface {
+	Run(ctx context.Context, cmd Command) (Result, error)
+}
+
+// OSRunner runs commands via os/exec.
+type OSRunner struct{}
+
+func (OSRunner) Run(ctx context.Context, cmd Command) (Result, error) {
 	c := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 	if cmd.Dir != "" {
 		c.Dir = cmd.Dir

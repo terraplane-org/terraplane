@@ -86,7 +86,7 @@ func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (strin
 }
 
 func (r *runner) run(ctx context.Context, terraformBin, workDir string, args ...string) (process.Result, error) {
-	return process.Run(ctx, process.Command{
+	return process.OSRunner{}.Run(ctx, process.Command{
 		Name: terraformBin,
 		Args: args,
 		Dir:  workDir,
