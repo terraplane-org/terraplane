@@ -82,7 +82,22 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 		"stack_count", len(stacks),
 	)
 
-	var dispatched int
+	connected, err := anyConnectedAgent(ctx, s.agentRegistry, stacks)
+	if err != nil {
+		return fmt.Errorf("failed to look up agent sessions for repository %s: %w", apply.Repo, err)
+	}
+	if !connected {
+		s.logger.Warn(
+			"Apply finished without dispatching any stacks because none of the agents required by terraplane.yaml are connected",
+			"repo", apply.Repo,
+			"pr", apply.PRNumber,
+			"stack_count", len(stacks),
+			"required_agents", uniqueAgentNames(stacks),
+		)
+		return nil
+	}
+
+	var dispatched, skippedLocked, skippedNoAgent int
 	for _, stack := range stacks {
 		s.logger.Debug(
 			"Looking up agent session for stack",
@@ -105,13 +120,11 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 				"stack", stack.Name,
 				"agent", stack.Agent,
 			)
+			skippedNoAgent++
 			continue
 		}
 
-		jobID, err := newJobID()
-		if err != nil {
-			return fmt.Errorf("failed to generate job ID for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
-		}
+		jobID := newJobID()
 
 		if err := s.locks.Create(ctx, &models.ProjectLock{
 			Repo:      apply.Repo,
@@ -128,6 +141,7 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 					return fmt.Errorf("failed to fetch lock for stack %q in repository %s: %w", stack.Name, apply.Repo, getErr)
 				}
 				s.logLockedStack(apply, stack.Name, existing)
+				skippedLocked++
 				continue
 			}
 			return fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
@@ -194,10 +208,12 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 
 	if dispatched == 0 {
 		s.logger.Warn(
-			"Apply finished without dispatching any stacks because no configured agents were connected",
+			"Apply finished without dispatching any stacks",
 			"repo", apply.Repo,
 			"pr", apply.PRNumber,
 			"stack_count", len(stacks),
+			"skipped_locked", skippedLocked,
+			"skipped_no_agent", skippedNoAgent,
 		)
 		return nil
 	}

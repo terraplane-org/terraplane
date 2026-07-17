@@ -17,7 +17,7 @@ build:
 		CGO_ENABLED=0 $(GOBUILD) -o $(BIN_TERRAPLANE) -v .
 
 # Packages expected to stay at 100% unit coverage (pure / minimal deps).
-COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command
+COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command ./pkg/orchestrator/services
 # Exclude generated mocks and protobuf stubs from the aggregate report.
 COVER_PKGS=$$(go list ./... | grep -vE '/mock_|/pkg/terraplane/v1$$')
 
