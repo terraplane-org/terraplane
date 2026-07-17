@@ -3,8 +3,6 @@ package handlers
 import (
 	"context"
 
-	"github.com/xyzjace/terraplane/pkg/agent/terraform"
-	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
 
@@ -20,8 +18,7 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		"plan_flags", cmd.GetPlanFlags(),
 	)
 
-	workspaceManager := workspace.NewManager(h.logger, h.sshKeyPath, h.workDir)
-	workspaceDir, err := workspaceManager.ProvisionWorkspace(ctx, cmd.GetRepo(), cmd.GetCommitHash(), cmd.GetStackName())
+	workspaceDir, err := h.workspaceManager.ProvisionWorkspace(ctx, cmd.GetRepo(), cmd.GetCommitHash(), cmd.GetStackName())
 	if err != nil {
 		h.logger.Error(
 			"Failed to provision workspace for terraplane plan",
@@ -47,7 +44,7 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 
 	defer func() {
 		if err != nil {
-			if removeErr := workspaceManager.RemoveWorkspace(ctx); removeErr != nil {
+			if removeErr := h.workspaceManager.RemoveWorkspace(ctx, workspaceDir); removeErr != nil {
 				h.logger.Error(
 					"Failed to remove workspace after plan failure",
 					"repo", cmd.GetRepo(),
@@ -59,8 +56,7 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		}
 	}()
 
-	terraformManager := terraform.NewManager(h.logger, workspaceDir, h.terraformBinDir, h.defaultTerraformVersion, jobID)
-	output, err := terraformManager.RunPlan(ctx, cmd.GetStackName(), cmd.GetPlanFlags())
+	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.GetStackName(), cmd.GetPlanFlags())
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform plan",

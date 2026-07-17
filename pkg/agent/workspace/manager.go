@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/log"
 )
@@ -16,18 +17,23 @@ import (
 type Manager interface {
 	ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
 	FetchWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error)
-	RemoveWorkspace(ctx context.Context) error
+	RemoveWorkspace(ctx context.Context, path string) error
 }
+
+//go:generate mockgen -source=manager.go -destination=mock_workspace/mock_manager.go -package=mock_workspace
 
 type manager struct {
 	logger     log.Logger
 	sshKeyPath string
 	workDir    string
-	workingDir string
 }
 
-func NewManager(logger log.Logger, sshKeyPath, workDir string) Manager {
-	return &manager{logger: logger, sshKeyPath: sshKeyPath, workDir: workDir}
+func NewManager(cfg *config.Config, logger log.Logger) Manager {
+	return &manager{
+		logger:     logger,
+		sshKeyPath: cfg.AgentSCMSSHKeyPath,
+		workDir:    cfg.AgentWorkDir,
+	}
 }
 
 func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision string, stack string) (string, error) {
@@ -67,7 +73,6 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 				"stack", stack,
 				"path", repoDirPath,
 			)
-			m.workingDir = repoDirPath
 			return repoDirPath, nil
 		}
 
@@ -103,7 +108,6 @@ func (m *manager) ProvisionWorkspace(ctx context.Context, repo string, revision 
 		return "", fmt.Errorf("failed to clone repository %s at revision %s: %w", repo, revision, err)
 	}
 
-	m.workingDir = repoDirPath
 	return repoDirPath, nil
 }
 
@@ -132,7 +136,6 @@ func (m *manager) FetchWorkspace(ctx context.Context, repo string, revision stri
 		return "", fmt.Errorf("workspace %q is not ready", repoDirPath)
 	}
 
-	m.workingDir = repoDirPath
 	return repoDirPath, nil
 }
 
@@ -163,7 +166,6 @@ func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, r
 		return false, fmt.Errorf("failed to checkout revision %s: %w", revision, err)
 	}
 
-	m.workingDir = repoDirPath
 	return true, nil
 }
 
@@ -266,14 +268,13 @@ func scmHost(repo string) string {
 	return "github.com"
 }
 
-func (m *manager) RemoveWorkspace(ctx context.Context) error {
-	if m.workingDir == "" {
+func (m *manager) RemoveWorkspace(ctx context.Context, path string) error {
+	if path == "" {
 		return nil
 	}
-	err := os.RemoveAll(m.workingDir)
+	err := os.RemoveAll(path)
 	if err != nil {
 		return fmt.Errorf("failed to remove workspace: %w", err)
 	}
-	m.workingDir = ""
 	return nil
 }

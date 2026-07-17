@@ -11,6 +11,8 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
 	"github.com/xyzjace/terraplane/pkg/agent"
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
@@ -53,8 +55,10 @@ func InitializeAgent() (agent.Manager, error) {
 		return nil, err
 	}
 	logger := logging.NewLogger(configConfig)
-	manager := agent.NewManager(configConfig, logger)
-	return manager, nil
+	manager := workspace.NewManager(configConfig, logger)
+	terraformManager := terraform.NewManager(configConfig, logger)
+	agentManager := agent.NewManager(configConfig, logger, manager, terraformManager)
+	return agentManager, nil
 }
 
 // wire.go:

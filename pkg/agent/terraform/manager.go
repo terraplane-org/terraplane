@@ -6,35 +6,36 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
 type Manager interface {
-	RunPlan(ctx context.Context, stackName, planFlags string) (string, error)
-	RunApply(ctx context.Context, stackName string) (string, error)
+	RunPlan(ctx context.Context, workspaceDir, stackName, planFlags string) (string, error)
+	RunApply(ctx context.Context, workspaceDir, stackName string) (string, error)
 }
+
+//go:generate mockgen -source=manager.go -destination=mock_terraform/mock_manager.go -package=mock_terraform
 
 type manager struct {
 	logger         log.Logger
-	workspaceDir   string
 	defaultVersion string
 	versionManager VersionManager
 	runner         Runner
 }
 
-func NewManager(logger log.Logger, workspaceDir, terraformBinDir, defaultTerraformVersion, jobID string) Manager {
+func NewManager(cfg *config.Config, logger log.Logger) Manager {
 	return &manager{
 		logger:         logger,
-		workspaceDir:   workspaceDir,
-		defaultVersion: defaultTerraformVersion,
-		versionManager: NewVersionManager(logger, terraformBinDir),
-		runner:         NewRunner(jobID),
+		defaultVersion: cfg.AgentDefaultTerraformVersion,
+		versionManager: NewVersionManager(logger, cfg.AgentTerraformBinDir),
+		runner:         NewRunner(),
 	}
 }
 
-func (m *manager) RunPlan(ctx context.Context, stackName, planFlags string) (string, error) {
-	terraformDir, version, err := m.resolveStack(stackName)
+func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, planFlags string) (string, error) {
+	terraformDir, version, err := m.resolveStack(workspaceDir, stackName)
 	if err != nil {
 		return "", err
 	}
@@ -51,8 +52,8 @@ func (m *manager) RunPlan(ctx context.Context, stackName, planFlags string) (str
 	return m.runner.Plan(ctx, terraformBin, terraformDir, planFlags)
 }
 
-func (m *manager) RunApply(ctx context.Context, stackName string) (string, error) {
-	terraformDir, version, err := m.resolveStack(stackName)
+func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName string) (string, error) {
+	terraformDir, version, err := m.resolveStack(workspaceDir, stackName)
 	if err != nil {
 		return "", err
 	}
@@ -65,8 +66,8 @@ func (m *manager) RunApply(ctx context.Context, stackName string) (string, error
 	return m.runner.Apply(ctx, terraformBin, terraformDir)
 }
 
-func (m *manager) resolveStack(stackName string) (terraformDir, version string, err error) {
-	file, err := os.ReadFile(filepath.Join(m.workspaceDir, "terraplane.yaml"))
+func (m *manager) resolveStack(workspaceDir, stackName string) (terraformDir, version string, err error) {
+	file, err := os.ReadFile(filepath.Join(workspaceDir, "terraplane.yaml"))
 	if err != nil {
 		return "", "", fmt.Errorf("failed to read terraplane config: %w", err)
 	}
@@ -95,5 +96,5 @@ func (m *manager) resolveStack(stackName string) (terraformDir, version string, 
 		return "", "", fmt.Errorf("no terraform version configured for stack %q and AGENT_DEFAULT_TERRAFORM_VERSION is not set", stackName)
 	}
 
-	return filepath.Join(m.workspaceDir, stack.Dir), version, nil
+	return filepath.Join(workspaceDir, stack.Dir), version, nil
 }

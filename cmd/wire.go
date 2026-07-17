@@ -10,6 +10,8 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
 	"github.com/xyzjace/terraplane/pkg/agent"
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
@@ -43,6 +45,12 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 }
 
 func InitializeAgent() (agent.Manager, error) {
-	wire.Build(observableSet, agent.NewManager, config.NewConfig)
+	wire.Build(
+		observableSet,
+		config.NewConfig,
+		workspace.NewManager,
+		terraform.NewManager,
+		agent.NewManager,
+	)
 	return nil, nil
 }

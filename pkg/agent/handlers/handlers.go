@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
@@ -10,22 +12,18 @@ import (
 type WriteFunc func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error
 
 type Handlers struct {
-	logger                  log.Logger
-	write                   WriteFunc
-	sshKeyPath              string
-	workDir                 string
-	terraformBinDir         string
-	defaultTerraformVersion string
+	logger           log.Logger
+	write            WriteFunc
+	workspaceManager workspace.Manager
+	terraformManager terraform.Manager
 }
 
-func New(logger log.Logger, write WriteFunc, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion string) *Handlers {
+func New(logger log.Logger, write WriteFunc, workspaceManager workspace.Manager, terraformManager terraform.Manager) *Handlers {
 	return &Handlers{
-		logger:                  logger,
-		write:                   write,
-		sshKeyPath:              sshKeyPath,
-		workDir:                 workDir,
-		terraformBinDir:         terraformBinDir,
-		defaultTerraformVersion: defaultTerraformVersion,
+		logger:           logger,
+		write:            write,
+		workspaceManager: workspaceManager,
+		terraformManager: terraformManager,
 	}
 }
 

@@ -23,6 +23,8 @@ type VersionManager interface {
 	Ensure(ctx context.Context, version string) (string, error)
 }
 
+//go:generate mockgen -source=version_manager.go -destination=mock_terraform/mock_version_manager.go -package=mock_terraform
+
 type versionManager struct {
 	logger log.Logger
 	binDir string

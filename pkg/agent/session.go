@@ -8,6 +8,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/agent/handlers"
+	"github.com/xyzjace/terraplane/pkg/agent/terraform"
+	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -22,7 +24,13 @@ type Session struct {
 	writeMu  sync.Mutex
 }
 
-func NewSession(id string, conn *websocket.Conn, logger log.Logger, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion string) *Session {
+func NewSession(
+	id string,
+	conn *websocket.Conn,
+	logger log.Logger,
+	workspaceManager workspace.Manager,
+	terraformManager terraform.Manager,
+) *Session {
 	s := &Session{
 		id:     id,
 		conn:   conn,
@@ -30,7 +38,7 @@ func NewSession(id string, conn *websocket.Conn, logger log.Logger, sshKeyPath, 
 	}
 	s.handlers = handlers.New(logger, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
 		return s.Write(ctx, env)
-	}, sshKeyPath, workDir, terraformBinDir, defaultTerraformVersion)
+	}, workspaceManager, terraformManager)
 	return s
 }
 
