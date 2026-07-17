@@ -42,7 +42,8 @@ func (s *session) ID() string {
 func (s *session) Run(ctx context.Context) error {
 	defer func() {
 		_ = s.registry.Unregister(ctx, s.id)
-		_ = s.conn.Close(websocket.StatusNormalClosure, "")
+		// Read loop is done; skip the close handshake wait.
+		_ = s.conn.CloseNow()
 	}()
 
 	s.logger.Info("Agent session started", "agent_id", s.id)
