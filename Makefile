@@ -17,7 +17,9 @@ build:
 		CGO_ENABLED=0 $(GOBUILD) -o $(BIN_TERRAPLANE) -v .
 
 # Packages expected to stay at 100% unit coverage (pure / minimal deps).
-COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command ./pkg/orchestrator/services ./pkg/agentsession ./pkg/agent/handlers
+# wsproto and scm/github are intentionally omitted: unreachable marshal-error
+# branches are not worth package-level test hooks.
+COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command ./pkg/orchestrator/services ./pkg/agentsession ./pkg/agent/handlers ./pkg/webserver
 # Exclude generated mocks and protobuf stubs from the aggregate report.
 COVER_PKGS=$$(go list ./... | grep -vE '/mock_|/pkg/terraplane/v1$$')
 
