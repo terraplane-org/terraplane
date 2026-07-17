@@ -79,6 +79,21 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 		"stack_count", len(stacks),
 	)
 
+	connected, err := anyConnectedAgent(ctx, s.agentRegistry, stacks)
+	if err != nil {
+		return fmt.Errorf("failed to look up agent sessions for repository %s: %w", plan.Repo, err)
+	}
+	if !connected {
+		s.logger.Warn(
+			"Plan finished without dispatching any stacks because none of the agents required by terraplane.yaml are connected",
+			"repo", plan.Repo,
+			"pr", plan.PRNumber,
+			"stack_count", len(stacks),
+			"required_agents", uniqueAgentNames(stacks),
+		)
+		return nil
+	}
+
 	var dispatched int
 	for _, stack := range stacks {
 		s.logger.Debug(
@@ -105,10 +120,7 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 			continue
 		}
 
-		jobID, err := newJobID()
-		if err != nil {
-			return fmt.Errorf("failed to generate job ID for stack %q in repository %s: %w", stack.Name, plan.Repo, err)
-		}
+		jobID := newJobID()
 
 		if err := s.jobs.Create(ctx, &models.Job{
 			ID:        jobID,
@@ -158,16 +170,6 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 		dispatched++
 	}
 
-	if dispatched == 0 {
-		s.logger.Warn(
-			"Plan finished without dispatching any stacks because no configured agents were connected",
-			"repo", plan.Repo,
-			"pr", plan.PRNumber,
-			"stack_count", len(stacks),
-		)
-		return nil
-	}
-
 	s.logger.Info(
 		"Finished terraplane plan dispatch",
 		"repo", plan.Repo,
@@ -179,6 +181,6 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 	return nil
 }
 
-func newJobID() (string, error) {
-	return uuid.NewString(), nil
+func newJobID() string {
+	return uuid.NewString()
 }

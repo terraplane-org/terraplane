@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -18,29 +17,26 @@ type UnlockService interface {
 }
 
 type unlockService struct {
-	logger        log.Logger
-	agentRegistry agentsession.Registry
-	scmProvider   scm.Provider
-	scmPublisher  scm.Publisher
-	jobs          repository.JobRepository
-	locks         repository.LockRepository
+	logger       log.Logger
+	scmProvider  scm.Provider
+	scmPublisher scm.Publisher
+	jobs         repository.JobRepository
+	locks        repository.LockRepository
 }
 
 func NewUnlockService(
 	logger log.Logger,
-	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
 	scmPublisher scm.Publisher,
 	jobs repository.JobRepository,
 	locks repository.LockRepository,
 ) UnlockService {
 	return &unlockService{
-		logger:        logger,
-		agentRegistry: agentRegistry,
-		scmProvider:   scmProvider,
-		scmPublisher:  scmPublisher,
-		jobs:          jobs,
-		locks:         locks,
+		logger:       logger,
+		scmProvider:  scmProvider,
+		scmPublisher: scmPublisher,
+		jobs:         jobs,
+		locks:        locks,
 	}
 }
 
@@ -131,6 +127,7 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 
 func (s *unlockService) publishUnlockSuccess(ctx context.Context, unlock command.UnlockCommand, stackName string) {
 	comment := feedback.UnlockResultComment(stackName, true, "")
+	// TODO: We should handle retries here
 	if err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
 		s.logger.Error(
 			"Failed to write unlock result comment",
