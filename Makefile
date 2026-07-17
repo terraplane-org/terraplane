@@ -8,7 +8,7 @@ BIN_TERRAPLANE_LINUX=$(BIN_TERRAPLANE)-linux-amd64
 BIN_TERRAPLANE_DARWIN=$(BIN_TERRAPLANE)-darwin-arm64
 GOLANGCI_LINT := golangci-lint
 
-.PHONY: build unit-test tests clean generate run-orchestrator run-agent build-linux build-darwin lint db-migrate-diff db-migrate-validate govulncheck
+.PHONY: build unit-test tests clean generate run-orchestrator run-agent build-linux build-darwin lint db-migrate-diff db-migrate-validate govulncheck coverage
 
 default: build
 
@@ -16,17 +16,32 @@ default: build
 build:
 		CGO_ENABLED=0 $(GOBUILD) -o $(BIN_TERRAPLANE) -v .
 
+# Packages expected to stay at 100% unit coverage (pure / minimal deps).
+COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command
+# Exclude generated mocks and protobuf stubs from the aggregate report.
+COVER_PKGS=$$(go list ./... | grep -vE '/mock_|/pkg/terraplane/v1$$')
+
 unit-test:
 		$(GOVET) ./...
-		TEST=true $(GOTEST) -v -coverprofile=c.out ./...
+		TEST=true $(GOTEST) -v -covermode=atomic -coverprofile=coverage.out $(COVER_PKGS)
+		$(GOCMD) tool cover -func=coverage.out
+		@$(GOCMD) test -covermode=atomic -coverprofile=coverage-full.out $(COVERAGE_FULL_PKGS)
+		@$(GOCMD) tool cover -func=coverage-full.out | awk '/total:/ { \
+			gsub(/%/, "", $$3); \
+			if ($$3+0 < 100) { printf "expected 100%% coverage for pure packages, got %s%%\n", $$3; exit 1 } \
+			printf "pure packages coverage: %s%%\n", $$3; \
+		}'
+
+coverage:
+		$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
 tests:
 		$(GOVET) ./...
-		$(GOTEST) -v --tags=integration -coverprofile=c.out ./...
+		$(GOTEST) -v --tags=integration -covermode=atomic -coverprofile=coverage.out $(COVER_PKGS)
 
 clean:
 		$(GOCLEAN)
-		rm -f $(BIN_TERRAPLANE) $(BIN_TERRAPLANE_LINUX)
+		rm -f $(BIN_TERRAPLANE) $(BIN_TERRAPLANE_LINUX) coverage.out coverage-full.out coverage.html
 generate:
 		$(GOCMD) generate -v ./...
 

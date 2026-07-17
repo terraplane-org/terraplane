@@ -17,7 +17,7 @@ func TestParseBearerToken(t *testing.T) {
 		{header: "Bearer secret", want: "secret", ok: true},
 		{header: "  Bearer secret  ", want: "secret", ok: true},
 		{header: "secret", ok: false},
-		{header: "Bearer ", ok: false},
+		{header: "Bearer ", ok: false}, // trims to "Bearer", fails prefix
 		{header: "", ok: false},
 	}
 	for _, tt := range tests {
@@ -34,5 +34,8 @@ func TestBearerTokenMatches(t *testing.T) {
 	}
 	if BearerTokenMatches("Bearer wrong", "secret") {
 		t.Fatal("expected mismatch")
+	}
+	if BearerTokenMatches("not-bearer", "secret") {
+		t.Fatal("expected mismatch for invalid header")
 	}
 }
