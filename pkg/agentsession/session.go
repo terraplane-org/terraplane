@@ -39,18 +39,24 @@ func (s *session) ID() string {
 	return s.id
 }
 
-func (s *session) Run(ctx context.Context) error {
+func (s *session) Run(ctx context.Context) (err error) {
 	defer func() {
 		_ = s.registry.Unregister(ctx, s.id)
-		// Read loop is done; skip the close handshake wait.
-		_ = s.conn.CloseNow()
+		if err != nil {
+			// Error teardown: skip the handshake wait; the peer already saw a fault.
+			_ = s.conn.CloseNow()
+			return
+		}
+		// Clean exit (expected disconnect / ctx cancel): send a normal close so the
+		// agent treats this as an expected disconnect rather than a read error.
+		_ = s.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	s.logger.Info("Agent session started", "agent_id", s.id)
 
 	for {
 		var msg terraplanev1.TerraformEnvelope
-		err := wsproto.Read(ctx, s.conn, &msg)
+		err = wsproto.Read(ctx, s.conn, &msg)
 		if err != nil {
 			if isExpectedDisconnect(err) || ctx.Err() != nil {
 				s.logger.Info("Agent session closed", "agent_id", s.id)
@@ -62,15 +68,15 @@ func (s *session) Run(ctx context.Context) error {
 		// TODO: Move handlers to somewhere else
 		switch msg.GetPayload().(type) {
 		case *terraplanev1.TerraformEnvelope_Ack:
-			if err := s.handleAck(ctx, &msg); err != nil {
+			if err = s.handleAck(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling ack from agent %s: %w", s.id, err)
 			}
 		case *terraplanev1.TerraformEnvelope_PlanResult:
-			if err := s.handlePlanResult(ctx, &msg); err != nil {
+			if err = s.handlePlanResult(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
 			}
 		case *terraplanev1.TerraformEnvelope_ApplyResult:
-			if err := s.handleApplyResult(ctx, &msg); err != nil {
+			if err = s.handleApplyResult(ctx, &msg); err != nil {
 				return fmt.Errorf("error handling apply result from agent %s: %w", s.id, err)
 			}
 		}

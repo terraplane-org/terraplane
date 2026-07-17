@@ -82,6 +82,8 @@ func TestSessionRunHandlesAckThenCloses(t *testing.T) {
 		t.Fatal("timed out waiting for ack handling")
 	}
 	cancel()
+	// Complete the peer side of the close handshake so Run's clean Close doesn't wait.
+	_ = clientConn.CloseNow()
 	require.NoError(t, <-done)
 
 	got, err := reg.Get(context.Background(), "agent-1")
@@ -143,6 +145,7 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 		t.Fatal("timed out waiting for apply result handling")
 	}
 	cancel()
+	_ = clientConn.CloseNow()
 	require.NoError(t, <-done)
 }
 
