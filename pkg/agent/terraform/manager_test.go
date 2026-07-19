@@ -3,6 +3,7 @@ package terraform_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -169,4 +170,46 @@ stacks:
 
 	_, err := s.mgr("1.0.0").RunApply(context.Background(), s.ws, "stg")
 	require.Error(s.T(), err)
+}
+
+func (s *ManagerSuite) TestRunPlanRejectsDirEscape() {
+	s.writeConfig(`
+stacks:
+  - name: stg
+    agent: a
+    dir: ../../outside
+    terraform_version: 1.5.0
+`)
+	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "escapes workspace")
+}
+
+func (s *ManagerSuite) TestRunPlanRejectsAbsoluteDir() {
+	s.writeConfig(fmt.Sprintf(`
+stacks:
+  - name: stg
+    agent: a
+    dir: %s
+    terraform_version: 1.5.0
+`, s.T().TempDir()))
+	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "must be relative")
+}
+
+func (s *ManagerSuite) TestRunPlanRejectsSymlinkEscape() {
+	outside := s.T().TempDir()
+	link := filepath.Join(s.ws, "escape")
+	require.NoError(s.T(), os.Symlink(outside, link))
+	s.writeConfig(`
+stacks:
+  - name: stg
+    agent: a
+    dir: escape
+    terraform_version: 1.5.0
+`)
+	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "escapes workspace")
 }

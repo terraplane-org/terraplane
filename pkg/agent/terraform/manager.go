@@ -106,5 +106,38 @@ func (m *manager) resolveStack(workspaceDir, stackName string) (terraformDir, ve
 		return "", "", fmt.Errorf("no terraform version configured for stack %q and AGENT_DEFAULT_TERRAFORM_VERSION is not set", stackName)
 	}
 
-	return filepath.Join(workspaceDir, stack.Dir), version, nil
+	terraformDir, err = resolveStackDir(workspaceDir, stack.Dir)
+	if err != nil {
+		return "", "", fmt.Errorf("stack %q dir %q: %w", stackName, stack.Dir, err)
+	}
+	return terraformDir, version, nil
+}
+
+// resolveStackDir joins stackDir onto workspaceDir, rejecting any path that
+// escapes the workspace (including via ".." or symlinks). os.Root is used the
+// same way workspace provisioning confines AGENT_WORK_DIR.
+func resolveStackDir(workspaceDir, stackDir string) (string, error) {
+	rel := filepath.Clean(stackDir)
+	if rel == "" {
+		rel = "."
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("must be relative to the workspace")
+	}
+
+	root, err := os.OpenRoot(workspaceDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to open workspace: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Stat(rel)
+	if err != nil {
+		return "", fmt.Errorf("path escapes workspace or does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("is not a directory")
+	}
+
+	return filepath.Join(workspaceDir, rel), nil
 }
