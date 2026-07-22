@@ -1,6 +1,38 @@
+# VCS / CI
 .git
+.github
+
+# Local env and secrets
+.env
+.env.*
+!.env-example
+
+# Build outputs and local tooling
 bin
 local_data
-.env
+
+# Test / coverage artifacts
+coverage.out
+coverage-full.out
+coverage.html
+*.coverprofile
+c.out
+*.test
+
+# Docs and non-build assets
 *.md
+docs
 docker-compose.yml
+.dockerignore
+.editorconfig
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Dev-only / generated-elsewhere
+atlas.hcl
+proto
+terraform
+tools
