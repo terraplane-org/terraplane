@@ -1,0 +1,14 @@
+apiVersion: v2
+name: terraplane
+description: PR-driven Terraform automation with remote agents
+type: application
+version: 0.1.1
+appVersion: "0.1.0"
+home: https://github.com/xyzjace/terraplane
+sources:
+  - https://github.com/xyzjace/terraplane
+keywords:
+  - terraform
+  - ci
+  - gitops
+  - agents

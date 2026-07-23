@@ -1,0 +1,99 @@
+# Default values for terraplane.
+# This is a YAML-formatted file.
+
+# -- Override the release namespace. Set to "" to use `helm -n` / Release.Namespace only.
+namespaceOverride: ""
+
+image:
+  # -- Container image repository
+  repository: xyzjace/terraplane
+  # -- Image tag (published git SHA from CI). Required for install.
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Optional image pull secrets
+imagePullSecrets: []
+
+# -- Extra labels applied to all resources
+commonLabels: {}
+
+orchestrator:
+  # -- Deploy the orchestrator. Set false for an agents-only release (typical: public orch, private agents).
+  enabled: true
+  # -- Number of orchestrator replicas (keep at 1; sessions are in-memory)
+  replicaCount: 1
+  migrate:
+    # -- Run `terraplane db migrate` as an initContainer before the orchestrator starts
+    enabled: true
+  # -- Extra environment variables for the orchestrator (non-secret config)
+  # Example: LOG_LEVEL: info
+  env: {}
+  # -- Load env from existing ConfigMaps/Secrets (chart does not create secrets)
+  # Example:
+  # - secretRef:
+  #     name: terraplane-orchestrator
+  envFrom: []
+  # -- Pod resources
+  resources: {}
+  service:
+    # -- Kubernetes Service type
+    type: ClusterIP
+    # -- Service / container port
+    port: 8080
+  ingress:
+    # -- Enable Ingress for the orchestrator (webhook + health)
+    enabled: false
+    # -- Ingress class name
+    className: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- Ingress hosts
+    # Example:
+    # - host: terraplane.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    hosts: []
+    # -- Ingress TLS
+    tls: []
+
+agentDefaults:
+  # -- Shared env for all agents (merged under per-agent env)
+  env: {}
+  # -- Shared envFrom for all agents (concatenated with per-agent envFrom)
+  envFrom: []
+  # -- WebSocket URL agents use to reach the orchestrator (required when agents is non-empty). Example: wss://terraplane.example.com/ws
+  orchestratorURL: ""
+  # -- Agent working directory (workspace + terraform bins)
+  workDir: /var/terraplane/work
+  # -- Default pod resources for agents
+  resources: {}
+  sshKey:
+    # -- Existing Secret name containing the deploy key (required for private repos)
+    secretName: ""
+    # -- Key within the Secret
+    secretKey: ssh-private-key
+    # -- Absolute path where the key is mounted in the container
+    mountPath: /run/secrets/git_ssh_key
+  persistence:
+    # -- Create a PVC per agent for plan/apply workspace reuse. false uses emptyDir
+    enabled: true
+    # -- PVC size
+    size: 20Gi
+    # -- StorageClass name (empty = cluster default)
+    storageClassName: ""
+    # -- PVC access mode
+    accessMode: ReadWriteOnce
+
+# -- Agent definitions. Each entry becomes a Deployment (replicas=1) with AGENT_ID = name.
+# Typically installed as a separate release from the orchestrator (private network / cluster).
+# Example:
+# - name: agent-dev
+#   env: {}
+#   envFrom: []
+#   sshKey:
+#     secretName: agent-dev-ssh
+#   persistence:
+#     size: 50Gi
+agents: []

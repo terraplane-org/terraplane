@@ -1,0 +1,135 @@
+# Terraplane Helm Chart
+
+PR-driven Terraform automation with remote agents.
+
+Agents usually run in a **different** network/cluster than the orchestrator (private infra vs public webhooks). Use two Helm releases of this chart, or disable the half you do not want.
+
+## Install
+
+### Orchestrator release
+
+```bash
+kubectl create namespace terraplane
+
+kubectl -n terraplane create secret generic terraplane-orchestrator \
+  --from-literal=DATABASE_URL='postgres://user:pass@host:5432/terraplane?sslmode=require' \
+  --from-literal=DATABASE_DRIVER=postgres \
+  --from-literal=SHARED_AUTH_TOKEN='change-me' \
+  --from-literal=ORCHESTRATOR_GITHUB_ACCESS_TOKEN='ghp_...' \
+  --from-literal=ORCHESTRATOR_GITHUB_WEBHOOK_SECRET='...'
+
+helm install terraplane-orch oci://registry-1.docker.io/xyzjace/terraplane \
+  --version 0.1.1 \
+  -n terraplane \
+  -f orch-values.yaml
+```
+
+```yaml
+# orch-values.yaml
+image:
+  tag: "<git-sha>"
+
+orchestrator:
+  enabled: true
+  envFrom:
+    - secretRef:
+        name: terraplane-orchestrator
+  ingress:
+    enabled: true
+    hosts:
+      - host: terraplane.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+
+agents: []
+```
+
+### Agents release (separate cluster/namespace)
+
+```bash
+# Create the namespace first so secrets can be placed into it
+kubectl create namespace terraplane-agents
+
+kubectl -n terraplane-agents create secret generic terraplane-agent \
+  --from-literal=SHARED_AUTH_TOKEN='change-me'
+
+kubectl -n terraplane-agents create secret generic agent-dev-ssh \
+  --from-file=ssh-private-key=./id_ed25519_dev
+
+kubectl -n terraplane-agents create secret generic agent-prod-ssh \
+  --from-file=ssh-private-key=./id_ed25519_prod
+
+helm install terraplane-agents oci://registry-1.docker.io/xyzjace/terraplane \
+  --version 0.1.1 \
+  -n terraplane-agents \
+  -f agents-values.yaml
+```
+
+```yaml
+# agents-values.yaml
+namespaceOverride: terraplane-agents
+
+image:
+  tag: "<git-sha>"
+
+orchestrator:
+  enabled: false
+
+agentDefaults:
+  orchestratorURL: wss://terraplane.example.com/ws
+  envFrom:
+    - secretRef:
+        name: terraplane-agent
+
+agents:
+  - name: agent-dev
+    sshKey:
+      secretName: agent-dev-ssh
+  - name: agent-prod
+    sshKey:
+      secretName: agent-prod-ssh
+    persistence:
+      size: 50Gi
+```
+
+Cloud secret managers (AWS Secrets Manager, GCP Secret Manager, Vault, etc.) are **out of band**: sync into Kubernetes Secrets with External Secrets Operator / CSI / your own tooling, then reference those Secret names from values.
+
+Image tags for the app are git SHAs (`xyzjace/terraplane:<sha>`). Chart versions are semver in `Chart.yaml`. Set `image.tag` to a published SHA when installing.
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| namespaceOverride | string | `"terraplane"` | Override the release namespace. Set to `""` to use `helm -n` / Release.Namespace only. |
+| image.repository | string | `"xyzjace/terraplane"` | Container image repository |
+| image.tag | string | `""` | Image tag (defaults to Chart.AppVersion when empty) |
+| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
+| imagePullSecrets | list | `[]` | Optional image pull secrets |
+| commonLabels | object | `{}` | Extra labels applied to all resources |
+| orchestrator.enabled | bool | `true` | Deploy the orchestrator. Set false for an agents-only release. |
+| orchestrator.replicaCount | int | `1` | Number of orchestrator replicas (keep at 1; sessions are in-memory) |
+| orchestrator.migrate.enabled | bool | `true` | Run `terraplane db migrate` as an initContainer before the orchestrator starts |
+| orchestrator.env | object | `{}` | Extra environment variables for the orchestrator (non-secret config) |
+| orchestrator.envFrom | list | `[]` | Load env from existing ConfigMaps/Secrets (chart does not create secrets) |
+| orchestrator.resources | object | `{}` | Pod resources |
+| orchestrator.service.type | string | `"ClusterIP"` | Kubernetes Service type |
+| orchestrator.service.port | int | `8080` | Service / container port |
+| orchestrator.ingress.enabled | bool | `false` | Enable Ingress for the orchestrator (webhook + health) |
+| orchestrator.ingress.className | string | `""` | Ingress class name |
+| orchestrator.ingress.annotations | object | `{}` | Ingress annotations |
+| orchestrator.ingress.hosts | list | `[]` | Ingress hosts |
+| orchestrator.ingress.tls | list | `[]` | Ingress TLS |
+| agentDefaults.env | object | `{}` | Shared env for all agents (merged under per-agent env) |
+| agentDefaults.envFrom | list | `[]` | Shared envFrom for all agents (concatenated with per-agent envFrom) |
+| agentDefaults.orchestratorURL | string | `""` | WebSocket URL for agents (required when agents is non-empty). Example: `wss://terraplane.example.com/ws` |
+| agentDefaults.workDir | string | `"/var/terraplane/work"` | Agent working directory (workspace + terraform bins) |
+| agentDefaults.resources | object | `{}` | Default pod resources for agents |
+| agentDefaults.sshKey.secretName | string | `""` | Existing Secret name containing the deploy key (required for private repos) |
+| agentDefaults.sshKey.secretKey | string | `"ssh-private-key"` | Key within the Secret |
+| agentDefaults.sshKey.mountPath | string | `"/run/secrets/git_ssh_key"` | Absolute path where the key is mounted in the container |
+| agentDefaults.persistence.enabled | bool | `true` | Create a PVC per agent for plan/apply workspace reuse. false uses emptyDir |
+| agentDefaults.persistence.size | string | `"20Gi"` | PVC size |
+| agentDefaults.persistence.storageClassName | string | `""` | StorageClass name (empty = cluster default) |
+| agentDefaults.persistence.accessMode | string | `"ReadWriteOnce"` | PVC access mode |
+| agents | list | `[]` | Agent definitions. Each entry becomes a Deployment (replicas=1) with AGENT_ID = name. |
