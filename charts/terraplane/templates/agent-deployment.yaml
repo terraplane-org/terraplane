@@ -1,0 +1,105 @@
+{{- if and .Values.agents (not .Values.agentDefaults.orchestratorURL) }}
+{{- fail "agentDefaults.orchestratorURL is required when agents is non-empty (e.g. wss://terraplane.example.com/ws)" }}
+{{- end }}
+{{- $seenAgents := dict -}}
+{{- range $agent := .Values.agents }}
+{{- if not $agent.name }}
+{{- fail "each agents[] entry requires a name" }}
+{{- end }}
+{{- if hasKey $seenAgents $agent.name }}
+{{- fail (printf "duplicate agent name %q" $agent.name) }}
+{{- end }}
+{{- $_ := set $seenAgents $agent.name true }}
+{{- $defaults := $.Values.agentDefaults }}
+{{- $persistence := mustMergeOverwrite (dict) $defaults.persistence ($agent.persistence | default dict) }}
+{{- $sshKey := mustMergeOverwrite (dict) $defaults.sshKey ($agent.sshKey | default dict) }}
+{{- $env := mustMergeOverwrite (dict) $defaults.env ($agent.env | default dict) }}
+{{- $envFrom := concat ($defaults.envFrom | default list) ($agent.envFrom | default list) }}
+{{- $resources := $agent.resources | default $defaults.resources }}
+{{- $workDir := $agent.workDir | default $defaults.workDir }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "terraplane.fullname" $ }}-{{ $agent.name }}
+  namespace: {{ include "terraplane.namespace" $ }}
+  labels:
+    {{- include "terraplane.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent
+    terraplane.io/agent-id: {{ $agent.name | quote }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "terraplane.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: agent
+      terraplane.io/agent-id: {{ $agent.name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "terraplane.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: agent
+        terraplane.io/agent-id: {{ $agent.name | quote }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "terraplane.image" $ | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["agent"]
+          env:
+            - name: AGENT_ID
+              value: {{ $agent.name | quote }}
+            - name: AGENT_ORCHESTRATOR_URL
+              value: {{ $defaults.orchestratorURL | quote }}
+            - name: AGENT_WORK_DIR
+              value: {{ $workDir | quote }}
+            - name: AGENT_TERRAFORM_BIN_DIR
+              value: {{ printf "%s/terraform" $workDir | quote }}
+            {{- if $sshKey.secretName }}
+            - name: AGENT_SCM_SSH_KEY_PATH
+              value: {{ $sshKey.mountPath | quote }}
+            {{- end }}
+            {{- range $key, $value := $env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with $envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: work
+              mountPath: {{ $workDir }}
+            {{- if $sshKey.secretName }}
+            - name: ssh-key
+              mountPath: {{ dir $sshKey.mountPath }}
+              readOnly: true
+            {{- end }}
+          {{- with $resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: work
+          {{- if $persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "terraplane.fullname" $ }}-{{ $agent.name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if $sshKey.secretName }}
+        - name: ssh-key
+          secret:
+            secretName: {{ $sshKey.secretName }}
+            defaultMode: 0600
+            items:
+              - key: {{ $sshKey.secretKey }}
+                path: {{ base $sshKey.mountPath }}
+        {{- end }}
+{{- end }}

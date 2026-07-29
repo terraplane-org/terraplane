@@ -1,0 +1,19 @@
+Terraplane {{ .Chart.Version }} installed in namespace {{ include "terraplane.namespace" . }}.
+
+{{- if .Values.orchestrator.enabled }}
+
+Orchestrator service: {{ include "terraplane.fullname" . }}-orchestrator:{{ .Values.orchestrator.service.port }}
+{{- end }}
+{{- if .Values.agents }}
+
+Agents connect to: {{ .Values.agentDefaults.orchestratorURL }}
+{{- end }}
+
+Secrets are not created by this chart. Provide them as Kubernetes Secrets and
+reference them via orchestrator.envFrom / agentDefaults.envFrom / agents[].envFrom.
+
+Typical pattern: install the orchestrator in a reachable cluster/network, then install
+agents as a separate release with orchestrator.enabled=false and
+agentDefaults.orchestratorURL pointing at the public WebSocket URL.
+
+See charts/terraplane/README.md for values documentation.

@@ -30,6 +30,7 @@ docker-compose.yml
 *.swp
 *.swo
 .DS_Store
+charts
 
 # Dev-only / generated-elsewhere
 atlas.hcl

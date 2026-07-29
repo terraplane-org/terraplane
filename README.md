@@ -106,7 +106,22 @@ Config is environment variables (optional `.env` via Viper). Highlights:
 
 ## Deployment
 
-**Coming soon.** There are no Helm charts or production install guides yet. Today the supported path is Docker Compose for local/dev. Packaged deployment (Helm/Kustomize, example manifests, hardening notes) will land here.
+### Helm (Kubernetes)
+
+A minimal chart lives in [`charts/terraplane`](charts/terraplane). It runs one orchestrator and N agents, expects an external database, and consumes existing Kubernetes Secrets (no cloud secret-manager templates in the chart).
+
+```bash
+helm install terraplane oci://registry-1.docker.io/xyzjace/terraplane \
+  --version 0.1.1 \
+  -n terraplane --create-namespace \
+  -f my-values.yaml
+```
+
+Typical production layout is **two releases**: orchestrator (reachable for GitHub webhooks) and agents (`orchestrator.enabled=false` + `agentDefaults.orchestratorURL`). See [charts/terraplane/README.md](charts/terraplane/README.md) for values, secrets examples, and split-install notes.
+
+### Docker Compose
+
+For local/dev, Docker Compose remains the quickest path (Postgres + migrate + orchestrator + agents).
 
 ## Status
 

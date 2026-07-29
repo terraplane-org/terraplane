@@ -1,0 +1,25 @@
+{{- range $agent := .Values.agents }}
+{{- $defaults := $.Values.agentDefaults }}
+{{- $persistence := mustMergeOverwrite (dict) $defaults.persistence ($agent.persistence | default dict) }}
+{{- if $persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "terraplane.fullname" $ }}-{{ $agent.name }}
+  namespace: {{ include "terraplane.namespace" $ }}
+  labels:
+    {{- include "terraplane.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent
+    terraplane.io/agent-id: {{ $agent.name | quote }}
+spec:
+  accessModes:
+    - {{ $persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ $persistence.size }}
+  {{- with $persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
+{{- end }}
