@@ -37,7 +37,7 @@ func NewSession(
 		logger: logger,
 	}
 	s.handlers = handlers.New(logger, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
-		return s.Write(ctx, env)
+		return s.WriteTerraform(ctx, env)
 	}, workspaceManager, terraformManager)
 	return s
 }
@@ -58,18 +58,13 @@ func (s *Session) write(ctx context.Context, msg proto.Message) error {
 	return wsproto.Write(ctx, s.conn, msg)
 }
 
-func (s *Session) Read(ctx context.Context, msg proto.Message) error {
-	return wsproto.Read(ctx, s.conn, msg)
-}
-
-func (s *Session) Write(ctx context.Context, msg proto.Message) error {
-	return s.write(ctx, msg)
+func (s *Session) WriteTerraform(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	return s.write(ctx, wsproto.WrapTerraform(msg))
 }
 
 func (s *Session) Run(ctx context.Context) error {
 	for {
-		var msg terraplanev1.TerraformEnvelope
-		err := s.Read(ctx, &msg)
+		env, err := wsproto.ReadEnvelope(ctx, s.conn)
 		if err != nil {
 			if isExpectedDisconnect(err) || ctx.Err() != nil {
 				return nil
@@ -77,14 +72,37 @@ func (s *Session) Run(ctx context.Context) error {
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
-		env := proto.Clone(&msg).(*terraplanev1.TerraformEnvelope)
-		if err := s.handlers.Dispatch(ctx, env); err != nil {
-			s.logger.Error(
-				"Failed to dispatch terraform envelope",
-				"agent_id", s.id,
-				"job_id", env.GetJobId(),
-				"error", err,
-			)
+		switch env.GetPayload().(type) {
+		case *terraplanev1.WebsocketEnvelope_Ping:
+			s.logger.Debug("Received orchestrator ping", "agent_id", s.id)
+			if err := s.write(ctx, &terraplanev1.WebsocketEnvelope{
+				Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+			}); err != nil {
+				if isExpectedDisconnect(err) || ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("write pong: %w", err)
+			}
+			s.logger.Debug("Sent pong", "agent_id", s.id)
+		case *terraplanev1.WebsocketEnvelope_Pong:
+			s.logger.Debug("Ignoring unexpected pong from orchestrator", "agent_id", s.id)
+		case *terraplanev1.WebsocketEnvelope_Terraform:
+			tf := env.GetTerraform()
+			if tf == nil {
+				s.logger.Debug("Ignoring empty terraform payload", "agent_id", s.id)
+				continue
+			}
+			tf = proto.Clone(tf).(*terraplanev1.TerraformEnvelope)
+			if err := s.handlers.Dispatch(ctx, tf); err != nil {
+				s.logger.Error(
+					"Failed to dispatch terraform envelope",
+					"agent_id", s.id,
+					"job_id", tf.GetJobId(),
+					"error", err,
+				)
+			}
+		default:
+			s.logger.Debug("Ignoring unexpected websocket payload", "agent_id", s.id, "payload", fmt.Sprintf("%T", env.GetPayload()))
 		}
 	}
 }

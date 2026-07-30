@@ -12,13 +12,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
+	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	"github.com/xyzjace/terraplane/pkg/storage/repository/mock_repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
+
+func testFactory(
+	logger log.Logger,
+	reg Registry,
+	jobs repository.JobRepository,
+	locks repository.LockRepository,
+	pub scm.Publisher,
+) Factory {
+	return NewFactory(logger, reg, jobs, locks, pub, &config.Config{})
+}
 
 func TestIsExpectedDisconnect(t *testing.T) {
 	require.True(t, isExpectedDisconnect(context.Canceled))
@@ -37,7 +50,7 @@ func TestFactoryNew(t *testing.T) {
 	locks := mock_repository.NewMockLockRepository(ctrl)
 	pub := mock_scm.NewMockPublisher(ctrl)
 
-	f := NewFactory(log.Noop(), reg, jobs, locks, pub)
+	f := testFactory(log.Noop(), reg, jobs, locks, pub)
 	sess := f.New("agent-x", nil)
 	require.Equal(t, "agent-x", sess.ID())
 }
@@ -51,7 +64,7 @@ func TestSessionRunHandlesAckThenCloses(t *testing.T) {
 
 	serverConn, clientConn := testWSPair(t)
 
-	sess := NewFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
 	processed := make(chan struct{})
@@ -71,7 +84,7 @@ func TestSessionRunHandlesAckThenCloses(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(ctx) }()
 
-	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(ctx, clientConn, &terraplanev1.TerraformEnvelope{
 		JobId:   "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_Ack{Ack: &terraplanev1.Ack{Message: "ok"}},
 	}))
@@ -99,7 +112,7 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 	reg := NewRegistry(log.Noop())
 
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
 	planJob := &models.Job{ID: "plan-1", Repo: "acme/infra", PRNumber: 2, StackName: "a", Status: models.JobStatusRunning}
@@ -126,13 +139,13 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(ctx) }()
 
-	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(ctx, clientConn, &terraplanev1.TerraformEnvelope{
 		JobId: "plan-1",
 		Payload: &terraplanev1.TerraformEnvelope_PlanResult{
 			PlanResult: &terraplanev1.PlanResult{Success: true, Output: "ok"},
 		},
 	}))
-	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(ctx, clientConn, &terraplanev1.TerraformEnvelope{
 		JobId: "apply-1",
 		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
 			ApplyResult: &terraplanev1.ApplyResult{Success: true, Output: "ok"},
@@ -157,7 +170,7 @@ func TestSessionRunHandlerError(t *testing.T) {
 	reg := NewRegistry(log.Noop())
 
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
@@ -165,7 +178,7 @@ func TestSessionRunHandlerError(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(context.Background()) }()
 
-	require.NoError(t, wsproto.Write(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
 		JobId:   "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_Ack{Ack: &terraplanev1.Ack{}},
 	}))
@@ -180,7 +193,7 @@ func TestSessionRunPlanResultHandlerError(t *testing.T) {
 	jobs := mock_repository.NewMockJobRepository(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
+	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
 		New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
@@ -188,7 +201,7 @@ func TestSessionRunPlanResultHandlerError(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(context.Background()) }()
 
-	require.NoError(t, wsproto.Write(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_PlanResult{
 			PlanResult: &terraplanev1.PlanResult{Success: true},
@@ -205,7 +218,7 @@ func TestSessionRunApplyResultHandlerError(t *testing.T) {
 	jobs := mock_repository.NewMockJobRepository(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
+	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
 		New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
@@ -213,7 +226,7 @@ func TestSessionRunApplyResultHandlerError(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(context.Background()) }()
 
-	require.NoError(t, wsproto.Write(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
+	require.NoError(t, wsproto.WriteTerraform(context.Background(), clientConn, &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
 			ApplyResult: &terraplanev1.ApplyResult{Success: true},
@@ -229,7 +242,7 @@ func TestSessionRunUnexpectedDisconnect(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(
+	sess := testFactory(
 		log.Noop(),
 		reg,
 		mock_repository.NewMockJobRepository(ctrl),
@@ -253,7 +266,7 @@ func TestSessionRunExpectedDisconnect(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := NewFactory(
+	sess := testFactory(
 		log.Noop(),
 		reg,
 		mock_repository.NewMockJobRepository(ctrl),
@@ -269,6 +282,93 @@ func TestSessionRunExpectedDisconnect(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestSessionHeartbeatDisconnectsWithoutPong(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reg := NewRegistry(log.Noop())
+	serverConn, clientConn := testWSPair(t)
+
+	cfg := &config.Config{
+		OrchestratorAgentPingInterval:     50 * time.Millisecond,
+		OrchestratorAgentPongTimeout:      30 * time.Millisecond,
+		OrchestratorAgentMissedHeartbeats: 2,
+	}
+	sess := NewFactory(
+		log.Noop(),
+		reg,
+		mock_repository.NewMockJobRepository(ctrl),
+		mock_repository.NewMockLockRepository(ctrl),
+		mock_scm.NewMockPublisher(ctrl),
+		cfg,
+	).New("agent-1", serverConn)
+	require.NoError(t, reg.Register(context.Background(), sess))
+
+	done := make(chan error, 1)
+	go func() { done <- sess.Run(context.Background()) }()
+
+	// Drain pings without responding.
+	go func() {
+		for {
+			if _, _, err := clientConn.Read(context.Background()); err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for heartbeat disconnect")
+	}
+
+	got, err := reg.Get(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
+func TestSessionHeartbeatAcceptsPong(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reg := NewRegistry(log.Noop())
+	serverConn, clientConn := testWSPair(t)
+
+	cfg := &config.Config{
+		OrchestratorAgentPingInterval:     40 * time.Millisecond,
+		OrchestratorAgentPongTimeout:      200 * time.Millisecond,
+		OrchestratorAgentMissedHeartbeats: 2,
+	}
+	sess := NewFactory(
+		log.Noop(),
+		reg,
+		mock_repository.NewMockJobRepository(ctrl),
+		mock_repository.NewMockLockRepository(ctrl),
+		mock_scm.NewMockPublisher(ctrl),
+		cfg,
+	).New("agent-1", serverConn)
+	require.NoError(t, reg.Register(context.Background(), sess))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- sess.Run(ctx) }()
+
+	for i := 0; i < 2; i++ {
+		var env terraplanev1.WebsocketEnvelope
+		readCtx, readCancel := context.WithTimeout(context.Background(), time.Second)
+		err := wsproto.Read(readCtx, clientConn, &env)
+		readCancel()
+		require.NoError(t, err)
+		require.NotNil(t, env.GetPing())
+		require.NoError(t, wsproto.Write(context.Background(), clientConn, &terraplanev1.WebsocketEnvelope{
+			Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+		}))
+	}
+
+	cancel()
+	_ = clientConn.CloseNow()
+	require.NoError(t, <-done)
+}
+
 func TestSessionWrite(t *testing.T) {
 	serverConn, clientConn := testWSPair(t)
 	sess := &session{id: "agent-1", conn: serverConn, logger: log.Noop()}
@@ -281,10 +381,219 @@ func TestSessionWrite(t *testing.T) {
 		},
 	}))
 
-	var got terraplanev1.TerraformEnvelope
-	require.NoError(t, wsproto.Read(ctx, clientConn, &got))
-	require.Equal(t, "job-1", got.GetJobId())
-	require.NotNil(t, got.GetPlan())
+	got, err := wsproto.ReadEnvelope(ctx, clientConn)
+	require.NoError(t, err)
+	tf := got.GetTerraform()
+	require.NotNil(t, tf)
+	require.Equal(t, "job-1", tf.GetJobId())
+	require.NotNil(t, tf.GetPlan())
+}
+
+func TestSessionIgnoresEmptyTerraformPayload(t *testing.T) {
+	s := &session{id: "agent-1", logger: log.Noop(), pongCh: make(chan struct{}, 1)}
+	require.NoError(t, s.handleWebsocketPayload(context.Background(), &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Terraform{Terraform: nil},
+	}))
+}
+
+func TestDrainTimer(t *testing.T) {
+	t.Run("stop active timer", func(t *testing.T) {
+		timer := time.NewTimer(time.Hour)
+		drainTimer(timer)
+		timer.Reset(time.Millisecond)
+		<-timer.C
+	})
+
+	t.Run("drain fired timer still in channel", func(t *testing.T) {
+		timer := time.NewTimer(time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+		drainTimer(timer)
+	})
+
+	t.Run("drain already consumed timer", func(t *testing.T) {
+		timer := time.NewTimer(time.Millisecond)
+		<-timer.C
+		drainTimer(timer)
+	})
+}
+
+func TestSessionIgnoresControlNoiseAndExtraPongs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	jobs := mock_repository.NewMockJobRepository(ctrl)
+	reg := NewRegistry(log.Noop())
+	serverConn, clientConn := testWSPair(t)
+	sess := testFactory(
+		log.Noop(),
+		reg,
+		jobs,
+		mock_repository.NewMockLockRepository(ctrl),
+		mock_scm.NewMockPublisher(ctrl),
+	).New("agent-1", serverConn)
+	require.NoError(t, reg.Register(context.Background(), sess))
+
+	processed := make(chan struct{})
+	job := &models.Job{ID: "job-noise", Status: models.JobStatusPending}
+	jobs.EXPECT().Get(gomock.Any(), "job-noise").Return(job, nil)
+	jobs.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *models.Job) error {
+			close(processed)
+			return nil
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- sess.Run(ctx) }()
+
+	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Ping{Ping: &terraplanev1.Ping{}},
+	}))
+	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Hello{Hello: &terraplanev1.Hello{AgentId: "noop"}},
+	}))
+	// Two pongs: first fills pongCh, second hits the non-blocking default.
+	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+	}))
+	require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+	}))
+	require.NoError(t, wsproto.WriteTerraform(ctx, clientConn, &terraplanev1.TerraformEnvelope{
+		JobId:   "job-noise",
+		Payload: &terraplanev1.TerraformEnvelope_Ack{Ack: &terraplanev1.Ack{Message: "ok"}},
+	}))
+
+	select {
+	case <-processed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ack after control noise")
+	}
+
+	cancel()
+	_ = clientConn.CloseNow()
+	require.NoError(t, <-done)
+}
+
+func TestSessionHeartbeatCancelsAndWriteErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	t.Run("cancel before first ping", func(t *testing.T) {
+		reg := NewRegistry(log.Noop())
+		serverConn, clientConn := testWSPair(t)
+		cfg := &config.Config{
+			OrchestratorAgentPingInterval:     time.Hour,
+			OrchestratorAgentPongTimeout:      time.Second,
+			OrchestratorAgentMissedHeartbeats: 2,
+		}
+		sess := NewFactory(
+			log.Noop(), reg,
+			mock_repository.NewMockJobRepository(ctrl),
+			mock_repository.NewMockLockRepository(ctrl),
+			mock_scm.NewMockPublisher(ctrl),
+			cfg,
+		).New("agent-1", serverConn)
+		require.NoError(t, reg.Register(context.Background(), sess))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- sess.Run(ctx) }()
+		cancel()
+		_ = clientConn.CloseNow()
+		require.NoError(t, <-done)
+	})
+
+	t.Run("cancel while waiting for pong", func(t *testing.T) {
+		reg := NewRegistry(log.Noop())
+		serverConn, clientConn := testWSPair(t)
+		cfg := &config.Config{
+			OrchestratorAgentPingInterval:     20 * time.Millisecond,
+			OrchestratorAgentPongTimeout:      time.Hour,
+			OrchestratorAgentMissedHeartbeats: 2,
+		}
+		sess := NewFactory(
+			log.Noop(), reg,
+			mock_repository.NewMockJobRepository(ctrl),
+			mock_repository.NewMockLockRepository(ctrl),
+			mock_scm.NewMockPublisher(ctrl),
+			cfg,
+		).New("agent-1", serverConn)
+		require.NoError(t, reg.Register(context.Background(), sess))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- sess.Run(ctx) }()
+
+		readCtx, readCancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := wsproto.ReadEnvelope(readCtx, clientConn)
+		readCancel()
+		require.NoError(t, err)
+
+		cancel()
+		require.NoError(t, <-done)
+	})
+
+	t.Run("stale pong drained on next ping", func(t *testing.T) {
+		reg := NewRegistry(log.Noop())
+		serverConn, clientConn := testWSPair(t)
+		cfg := &config.Config{
+			OrchestratorAgentPingInterval:     30 * time.Millisecond,
+			OrchestratorAgentPongTimeout:      200 * time.Millisecond,
+			OrchestratorAgentMissedHeartbeats: 2,
+		}
+		sess := NewFactory(
+			log.Noop(), reg,
+			mock_repository.NewMockJobRepository(ctrl),
+			mock_repository.NewMockLockRepository(ctrl),
+			mock_scm.NewMockPublisher(ctrl),
+			cfg,
+		).New("agent-1", serverConn)
+		require.NoError(t, reg.Register(context.Background(), sess))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- sess.Run(ctx) }()
+
+		// Seed a stale pong before the first ping is processed.
+		require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+			Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+		}))
+
+		for i := 0; i < 2; i++ {
+			readCtx, readCancel := context.WithTimeout(context.Background(), time.Second)
+			env, err := wsproto.ReadEnvelope(readCtx, clientConn)
+			readCancel()
+			require.NoError(t, err)
+			require.NotNil(t, env.GetPing())
+			require.NoError(t, wsproto.Write(ctx, clientConn, &terraplanev1.WebsocketEnvelope{
+				Payload: &terraplanev1.WebsocketEnvelope_Pong{Pong: &terraplanev1.Pong{}},
+			}))
+		}
+
+		cancel()
+		_ = clientConn.CloseNow()
+		require.NoError(t, <-done)
+	})
+
+	t.Run("ping write fails unexpectedly", func(t *testing.T) {
+		serverConn, clientConn := testWSPair(t)
+		_ = clientConn.CloseNow()
+		_ = serverConn.CloseNow()
+
+		s := &session{
+			id:               "agent-1",
+			conn:             serverConn,
+			logger:           log.Noop(),
+			pingInterval:     10 * time.Millisecond,
+			pongTimeout:      10 * time.Millisecond,
+			missedHeartbeats: 2,
+			pongCh:           make(chan struct{}, 1),
+		}
+		err := s.heartbeatLoop(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "write agent ping")
+	})
 }
 
 func testWSPair(t *testing.T) (server, client *websocket.Conn) {

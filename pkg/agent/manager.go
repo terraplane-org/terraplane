@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
@@ -12,6 +13,8 @@ import (
 	"github.com/xyzjace/terraplane/pkg/log"
 	"golang.org/x/sync/errgroup"
 )
+
+const reconnectInterval = 5 * time.Second
 
 type Manager interface {
 	Start(ctx context.Context) error
@@ -32,13 +35,36 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("agent ID is not set")
 	}
 
-	o.logger.Info("Starting agent...")
-
 	if o.sharedAuthToken == "" {
 		o.logger.Error("Shared auth token is not set. Please set the SHARED_AUTH_TOKEN environment variable.")
 		return fmt.Errorf("shared auth token is not set")
 	}
 
+	o.logger.Info("Starting agent...")
+
+	for {
+		err := o.runOnce(ctx)
+		if ctx.Err() != nil {
+			o.logger.Info("Agent stopped")
+			return nil
+		}
+
+		if err != nil {
+			o.logger.Warn("Agent disconnected; reconnecting", "error", err, "after", reconnectInterval)
+		} else {
+			o.logger.Debug("Agent disconnected; reconnecting", "after", reconnectInterval)
+		}
+
+		select {
+		case <-ctx.Done():
+			o.logger.Info("Agent stopped")
+			return nil
+		case <-time.After(reconnectInterval):
+		}
+	}
+}
+
+func (o *manager) runOnce(ctx context.Context) error {
 	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, &websocket.DialOptions{
 		HTTPHeader: map[string][]string{
 			"Authorization": {auth.BearerHeader(o.sharedAuthToken)},
@@ -76,14 +102,10 @@ func (o *manager) Start(ctx context.Context) error {
 
 	if err := group.Wait(); err != nil {
 		if gCtx.Err() != nil {
-			o.logger.Info("Agent stopped")
 			return nil
 		}
-		o.logger.Error("Agent stopped with error", "error", err)
 		return err
 	}
-
-	o.logger.Info("Agent stopped")
 	return nil
 }
 

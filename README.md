@@ -98,6 +98,9 @@ Config is environment variables (optional `.env` via Viper). Highlights:
 |----------|------|
 | `ORCHESTRATOR_GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC |
 | `ORCHESTRATOR_GITHUB_ACCESS_TOKEN` | GitHub API (files, comments) |
+| `ORCHESTRATOR_AGENT_PING_INTERVAL` | Agent WS ping interval (default `30s`) |
+| `ORCHESTRATOR_AGENT_PONG_TIMEOUT` | Wait for pong after ping (default `3s`) |
+| `ORCHESTRATOR_AGENT_MISSED_HEARTBEATS` | Consecutive missed pongs before disconnect (default `2`) |
 | `DATABASE_URL` / `DATABASE_DRIVER` | Job/lock persistence |
 | `SHARED_AUTH_TOKEN` | Orchestrator ↔ agent auth |
 | `AGENT_ID` | Must match `agent:` in `terraplane.yaml` |

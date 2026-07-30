@@ -23,12 +23,28 @@ func TestWriteReadRoundTrip(t *testing.T) {
 			Ack: &terraplanev1.Ack{Message: "hello"},
 		},
 	}
-	require.NoError(t, wsproto.Write(ctx, server, want))
+	require.NoError(t, wsproto.WriteTerraform(ctx, server, want))
 
-	var got terraplanev1.TerraformEnvelope
-	require.NoError(t, wsproto.Read(ctx, client, &got))
-	require.Equal(t, "job-1", got.GetJobId())
-	require.Equal(t, "hello", got.GetAck().GetMessage())
+	got, err := wsproto.ReadEnvelope(ctx, client)
+	require.NoError(t, err)
+	tf := got.GetTerraform()
+	require.NotNil(t, tf)
+	require.Equal(t, "job-1", tf.GetJobId())
+	require.Equal(t, "hello", tf.GetAck().GetMessage())
+}
+
+func TestWriteReadPingPong(t *testing.T) {
+	server, client := testWSPair(t)
+	ctx := context.Background()
+
+	require.NoError(t, wsproto.Write(ctx, server, &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Ping{Ping: &terraplanev1.Ping{}},
+	}))
+
+	got, err := wsproto.ReadEnvelope(ctx, client)
+	require.NoError(t, err)
+	require.NotNil(t, got.GetPing())
+	require.Nil(t, got.GetTerraform())
 }
 
 func TestReadRejectsNonBinaryMessage(t *testing.T) {
@@ -37,8 +53,7 @@ func TestReadRejectsNonBinaryMessage(t *testing.T) {
 
 	require.NoError(t, server.Write(ctx, websocket.MessageText, []byte("not-binary")))
 
-	var got terraplanev1.TerraformEnvelope
-	err := wsproto.Read(ctx, client, &got)
+	_, err := wsproto.ReadEnvelope(ctx, client)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expected binary websocket message")
 }
@@ -49,18 +64,22 @@ func TestReadUnmarshalFailure(t *testing.T) {
 
 	require.NoError(t, server.Write(ctx, websocket.MessageBinary, []byte("not-a-proto")))
 
-	var got terraplanev1.TerraformEnvelope
-	err := wsproto.Read(ctx, client, &got)
+	_, err := wsproto.ReadEnvelope(ctx, client)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unmarshal proto")
+}
+
+func TestWrapTerraform(t *testing.T) {
+	tf := &terraplanev1.TerraformEnvelope{JobId: "job-1"}
+	env := wsproto.WrapTerraform(tf)
+	require.Equal(t, "job-1", env.GetTerraform().GetJobId())
 }
 
 func TestReadPropagatesConnError(t *testing.T) {
 	server, client := testWSPair(t)
 	_ = server.CloseNow()
 
-	var got terraplanev1.TerraformEnvelope
-	err := wsproto.Read(context.Background(), client, &got)
+	_, err := wsproto.ReadEnvelope(context.Background(), client)
 	require.Error(t, err)
 }
 
@@ -69,7 +88,7 @@ func TestWritePropagatesConnError(t *testing.T) {
 	_ = client.CloseNow()
 	_ = server.CloseNow()
 
-	err := wsproto.Write(context.Background(), server, &terraplanev1.TerraformEnvelope{JobId: "x"})
+	err := wsproto.WriteTerraform(context.Background(), server, &terraplanev1.TerraformEnvelope{JobId: "x"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "write websocket message")
 }
