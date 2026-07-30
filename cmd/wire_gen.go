@@ -39,7 +39,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	jobRepository := storage.NewJobRepository(db)
 	lockRepository := storage.NewLockRepository(db)
 	publisher := github.NewPublisher(logger, client)
-	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher)
+	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher, configConfig)
 	planService := services.NewPlanService(logger, registry, provider, jobRepository)
 	applyService := services.NewApplyService(logger, registry, provider, jobRepository, lockRepository)
 	unlockService := services.NewUnlockService(logger, provider, publisher, jobRepository, lockRepository)

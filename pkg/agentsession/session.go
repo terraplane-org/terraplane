@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/feedback"
@@ -14,9 +15,13 @@ import (
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate mockgen -source=session.go -destination=mock_agentsession/mock_session.go -package=mock_agentsession
+
+var errMissedHeartbeats = errors.New("missed agent heartbeats")
 
 type Session interface {
 	ID() string
@@ -25,14 +30,18 @@ type Session interface {
 }
 
 type session struct {
-	id             string
-	conn           *websocket.Conn
-	logger         log.Logger
-	registry       Registry
-	writeMu        sync.Mutex
-	jobRepository  repository.JobRepository
-	lockRepository repository.LockRepository
-	scmPublisher   scm.Publisher
+	id               string
+	conn             *websocket.Conn
+	logger           log.Logger
+	registry         Registry
+	writeMu          sync.Mutex
+	jobRepository    repository.JobRepository
+	lockRepository   repository.LockRepository
+	scmPublisher     scm.Publisher
+	pingInterval     time.Duration
+	pongTimeout      time.Duration
+	missedHeartbeats int
+	pongCh           chan struct{}
 }
 
 func (s *session) ID() string {
@@ -54,33 +63,155 @@ func (s *session) Run(ctx context.Context) (err error) {
 
 	s.logger.Info("Agent session started", "agent_id", s.id)
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	g, gCtx := errgroup.WithContext(runCtx)
+	g.Go(func() error {
+		defer cancel()
+		return s.readLoop(gCtx)
+	})
+	if s.pingInterval > 0 {
+		g.Go(func() error {
+			defer cancel()
+			return s.heartbeatLoop(gCtx)
+		})
+	}
+
+	err = g.Wait()
+	if errors.Is(err, errMissedHeartbeats) {
+		s.logger.Debug("Agent session closed after missed heartbeats", "agent_id", s.id)
+		err = nil
+		return nil
+	}
+	if err != nil && !isExpectedDisconnect(err) && ctx.Err() == nil {
+		return err
+	}
+
+	// Clear named result so deferred teardown uses a normal close.
+	err = nil
+	s.logger.Info("Agent session closed", "agent_id", s.id)
+	return nil
+}
+
+func (s *session) readLoop(ctx context.Context) error {
 	for {
-		var msg terraplanev1.TerraformEnvelope
-		err = wsproto.Read(ctx, s.conn, &msg)
+		env, err := wsproto.ReadEnvelope(ctx, s.conn)
 		if err != nil {
 			if isExpectedDisconnect(err) || ctx.Err() != nil {
-				s.logger.Info("Agent session closed", "agent_id", s.id)
-				return nil
+				return err
 			}
 			return fmt.Errorf("read websocket message: %w", err)
 		}
 
-		// TODO: Move handlers to somewhere else
-		switch msg.GetPayload().(type) {
-		case *terraplanev1.TerraformEnvelope_Ack:
-			if err = s.handleAck(ctx, &msg); err != nil {
-				return fmt.Errorf("error handling ack from agent %s: %w", s.id, err)
+		if err := s.handleWebsocketPayload(ctx, env); err != nil {
+			return err
+		}
+	}
+}
+
+func (s *session) handleWebsocketPayload(ctx context.Context, env *terraplanev1.WebsocketEnvelope) error {
+	switch env.GetPayload().(type) {
+	case *terraplanev1.WebsocketEnvelope_Pong:
+		s.logger.Debug("Received agent pong", "agent_id", s.id)
+		select {
+		case s.pongCh <- struct{}{}:
+		default:
+		}
+	case *terraplanev1.WebsocketEnvelope_Ping:
+		s.logger.Debug("Ignoring unexpected ping from agent", "agent_id", s.id)
+	case *terraplanev1.WebsocketEnvelope_Terraform:
+		tf := env.GetTerraform()
+		if tf == nil {
+			s.logger.Debug("Ignoring empty terraform payload", "agent_id", s.id)
+			return nil
+		}
+		if err := s.handleTerraform(ctx, tf); err != nil {
+			return err
+		}
+		s.logger.Info("Received websocket message", "agent_id", s.id, "message", tf.String())
+	default:
+		s.logger.Debug("Ignoring unexpected websocket payload", "agent_id", s.id, "payload", fmt.Sprintf("%T", env.GetPayload()))
+	}
+	return nil
+}
+
+func (s *session) handleTerraform(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	switch msg.GetPayload().(type) {
+	case *terraplanev1.TerraformEnvelope_Ack:
+		if err := s.handleAck(ctx, msg); err != nil {
+			return fmt.Errorf("error handling ack from agent %s: %w", s.id, err)
+		}
+	case *terraplanev1.TerraformEnvelope_PlanResult:
+		if err := s.handlePlanResult(ctx, msg); err != nil {
+			return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
+		}
+	case *terraplanev1.TerraformEnvelope_ApplyResult:
+		if err := s.handleApplyResult(ctx, msg); err != nil {
+			return fmt.Errorf("error handling apply result from agent %s: %w", s.id, err)
+		}
+	}
+	return nil
+}
+
+func (s *session) heartbeatLoop(ctx context.Context) error {
+	ticker := time.NewTicker(s.pingInterval)
+	defer ticker.Stop()
+
+	pongTimer := time.NewTimer(s.pongTimeout)
+	defer pongTimer.Stop()
+
+	missed := 0
+	ping := &terraplanev1.WebsocketEnvelope{
+		Payload: &terraplanev1.WebsocketEnvelope_Ping{Ping: &terraplanev1.Ping{}},
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			// Drop a stale pong from a previous interval.
+			select {
+			case <-s.pongCh:
+			default:
 			}
-		case *terraplanev1.TerraformEnvelope_PlanResult:
-			if err = s.handlePlanResult(ctx, &msg); err != nil {
-				return fmt.Errorf("error handling plan result from agent %s: %w", s.id, err)
+
+			s.logger.Debug("Sending agent ping", "agent_id", s.id)
+			if err := s.writeMsg(ctx, ping); err != nil {
+				return fmt.Errorf("write agent ping: %w", err)
 			}
-		case *terraplanev1.TerraformEnvelope_ApplyResult:
-			if err = s.handleApplyResult(ctx, &msg); err != nil {
-				return fmt.Errorf("error handling apply result from agent %s: %w", s.id, err)
+
+			drainTimer(pongTimer)
+			pongTimer.Reset(s.pongTimeout)
+			select {
+			case <-s.pongCh:
+				s.logger.Debug("Agent heartbeat ok", "agent_id", s.id)
+				missed = 0
+			case <-pongTimer.C:
+				missed++
+				s.logger.Debug(
+					"Agent heartbeat missed",
+					"agent_id", s.id,
+					"missed", missed,
+					"max", s.missedHeartbeats,
+				)
+				if missed >= s.missedHeartbeats {
+					return errMissedHeartbeats
+				}
+			case <-ctx.Done():
+				return nil
 			}
 		}
-		s.logger.Info("Received websocket message", "agent_id", s.id, "message", msg.String())
+	}
+}
+
+func drainTimer(t *time.Timer) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
 	}
 }
 
@@ -204,6 +335,10 @@ func (s *session) releaseApplyLock(ctx context.Context, job *models.Job, jobID s
 }
 
 func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
+	return s.writeMsg(ctx, wsproto.WrapTerraform(msg))
+}
+
+func (s *session) writeMsg(ctx context.Context, msg proto.Message) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return wsproto.Write(ctx, s.conn, msg)
