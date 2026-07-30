@@ -15,6 +15,9 @@
 {{- $sshKey := mustMergeOverwrite (dict) $defaults.sshKey ($agent.sshKey | default dict) }}
 {{- $env := mustMergeOverwrite (dict) $defaults.env ($agent.env | default dict) }}
 {{- $envFrom := concat ($defaults.envFrom | default list) ($agent.envFrom | default list) }}
+{{- $extraVolumes := concat ($defaults.extraVolumes | default list) ($agent.extraVolumes | default list) }}
+{{- $extraVolumeMounts := concat ($defaults.extraVolumeMounts | default list) ($agent.extraVolumeMounts | default list) }}
+{{- $serviceAccountName := $agent.serviceAccountName | default $defaults.serviceAccountName }}
 {{- $resources := $agent.resources | default $defaults.resources }}
 {{- $workDir := $agent.workDir | default $defaults.workDir }}
 ---
@@ -46,6 +49,9 @@ spec:
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $serviceAccountName }}
+      serviceAccountName: {{ . | quote }}
       {{- end }}
       containers:
         - name: agent
@@ -81,6 +87,9 @@ spec:
               mountPath: {{ dir $sshKey.mountPath }}
               readOnly: true
             {{- end }}
+            {{- with $extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with $resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -101,5 +110,8 @@ spec:
             items:
               - key: {{ $sshKey.secretKey }}
                 path: {{ base $sshKey.mountPath }}
+        {{- end }}
+        {{- with $extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
 {{- end }}

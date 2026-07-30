@@ -112,7 +112,7 @@ A minimal chart lives in [`charts/terraplane`](charts/terraplane). It runs one o
 
 ```bash
 helm install terraplane oci://registry-1.docker.io/xyzjace/terraplane \
-  --version 0.1.1 \
+  --version 0.1.2 \
   -n terraplane --create-namespace \
   -f my-values.yaml
 ```
