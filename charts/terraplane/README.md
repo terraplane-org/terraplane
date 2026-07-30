@@ -19,7 +19,7 @@ kubectl -n terraplane create secret generic terraplane-orchestrator \
   --from-literal=ORCHESTRATOR_GITHUB_WEBHOOK_SECRET='...'
 
 helm install terraplane-orch oci://registry-1.docker.io/xyzjace/terraplane \
-  --version 0.1.1 \
+  --version 0.1.2 \
   -n terraplane \
   -f orch-values.yaml
 ```
@@ -61,7 +61,7 @@ kubectl -n terraplane-agents create secret generic agent-prod-ssh \
   --from-file=ssh-private-key=./id_ed25519_prod
 
 helm install terraplane-agents oci://registry-1.docker.io/xyzjace/terraplane \
-  --version 0.1.1 \
+  --version 0.1.2 \
   -n terraplane-agents \
   -f agents-values.yaml
 ```
@@ -95,6 +95,51 @@ agents:
 
 Cloud secret managers (AWS Secrets Manager, GCP Secret Manager, Vault, etc.) are **out of band**: sync into Kubernetes Secrets with External Secrets Operator / CSI / your own tooling, then reference those Secret names from values.
 
+To attach arbitrary volumes (for example a Secrets Store CSI mount that drives `secretObjects` sync) or a workload-identity ServiceAccount, use `serviceAccountName`, `extraVolumes`, and `extraVolumeMounts`. The chart does not create ServiceAccounts or cloud-specific secret resources.
+
+```yaml
+agentDefaults:
+  orchestratorURL: wss://orchestrator.example.com/ws
+  serviceAccountName: terraplane-agent
+  envFrom:
+    - secretRef:
+        name: terraplane-agent
+  sshKey:
+    secretName: terraplane-agent-ssh
+    secretKey: ssh-private-key
+    mountPath: /etc/terraplane/git_ssh_key
+  # Platform-provided volume so secret sync / sidecar CSI can run on this pod
+  extraVolumes:
+    - name: secrets-store
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: terraplane-agent-secrets
+  extraVolumeMounts:
+    - name: secrets-store
+      mountPath: /mnt/secrets-store
+      readOnly: true
+agents:
+  - name: stg-apse2
+```
+
+Generic non-CSI example:
+
+```yaml
+agentDefaults:
+  extraVolumes:
+    - name: config
+      configMap:
+        name: agent-extra-config
+  extraVolumeMounts:
+    - name: config
+      mountPath: /etc/agent-config
+      readOnly: true
+```
+
+`agentDefaults.extraVolumes` / `extraVolumeMounts` are concatenated with the matching per-agent lists (same merge rule as `envFrom`). Per-agent `serviceAccountName` wins when non-empty.
+
 Image tags for the app are git SHAs (`xyzjace/terraplane:<sha>`). Chart versions are semver in `Chart.yaml`. Set `image.tag` to a published SHA when installing.
 
 ## Values
@@ -110,8 +155,11 @@ Image tags for the app are git SHAs (`xyzjace/terraplane:<sha>`). Chart versions
 | orchestrator.enabled | bool | `true` | Deploy the orchestrator. Set false for an agents-only release. |
 | orchestrator.replicaCount | int | `1` | Number of orchestrator replicas (keep at 1; sessions are in-memory) |
 | orchestrator.migrate.enabled | bool | `true` | Run `terraplane db migrate` as an initContainer before the orchestrator starts |
+| orchestrator.serviceAccountName | string | `""` | Existing ServiceAccount name (chart does not create it). Omit to use the namespace default. |
 | orchestrator.env | object | `{}` | Extra environment variables for the orchestrator (non-secret config) |
 | orchestrator.envFrom | list | `[]` | Load env from existing ConfigMaps/Secrets (chart does not create secrets) |
+| orchestrator.extraVolumes | list | `[]` | Extra PodSpec volumes (pass-through; chart does not interpret volume types) |
+| orchestrator.extraVolumeMounts | list | `[]` | Extra volumeMounts on the orchestrator container (pass-through) |
 | orchestrator.resources | object | `{}` | Pod resources |
 | orchestrator.service.type | string | `"ClusterIP"` | Kubernetes Service type |
 | orchestrator.service.port | int | `8080` | Service / container port |
@@ -123,13 +171,16 @@ Image tags for the app are git SHAs (`xyzjace/terraplane:<sha>`). Chart versions
 | agentDefaults.env | object | `{}` | Shared env for all agents (merged under per-agent env) |
 | agentDefaults.envFrom | list | `[]` | Shared envFrom for all agents (concatenated with per-agent envFrom) |
 | agentDefaults.orchestratorURL | string | `""` | WebSocket URL for agents (required when agents is non-empty). Example: `wss://terraplane.example.com/ws` |
+| agentDefaults.serviceAccountName | string | `""` | Existing ServiceAccount for agent pods (chart does not create it). Per-agent non-empty override wins. |
+| agentDefaults.extraVolumes | list | `[]` | Extra PodSpec volumes for all agents (concatenated with `agents[].extraVolumes`; pass-through) |
+| agentDefaults.extraVolumeMounts | list | `[]` | Extra volumeMounts for all agents (concatenated with `agents[].extraVolumeMounts`; after work/ssh) |
 | agentDefaults.workDir | string | `"/var/terraplane/work"` | Agent working directory (workspace + terraform bins) |
 | agentDefaults.resources | object | `{}` | Default pod resources for agents |
 | agentDefaults.sshKey.secretName | string | `""` | Existing Secret name containing the deploy key (required for private repos) |
 | agentDefaults.sshKey.secretKey | string | `"ssh-private-key"` | Key within the Secret |
-| agentDefaults.sshKey.mountPath | string | `"/run/secrets/git_ssh_key"` | Absolute path where the key is mounted in the container |
+| agentDefaults.sshKey.mountPath | string | `"/etc/terraplane/git_ssh_key"` | Absolute path where the key is mounted in the container |
 | agentDefaults.persistence.enabled | bool | `true` | Create a PVC per agent for plan/apply workspace reuse. false uses emptyDir |
 | agentDefaults.persistence.size | string | `"20Gi"` | PVC size |
 | agentDefaults.persistence.storageClassName | string | `""` | StorageClass name (empty = cluster default) |
 | agentDefaults.persistence.accessMode | string | `"ReadWriteOnce"` | PVC access mode |
-| agents | list | `[]` | Agent definitions. Each entry becomes a Deployment (replicas=1) with AGENT_ID = name. |
+| agents | list | `[]` | Agent definitions. Each entry becomes a Deployment (replicas=1) with AGENT_ID = name. Optional per-agent: `serviceAccountName`, `extraVolumes`, `extraVolumeMounts`, `env`, `envFrom`, `sshKey`, `persistence`, `resources`, `workDir`. |

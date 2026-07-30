@@ -26,6 +26,8 @@ orchestrator:
   migrate:
     # -- Run `terraplane db migrate` as an initContainer before the orchestrator starts
     enabled: true
+  # -- Existing ServiceAccount name (chart does not create it)
+  serviceAccountName: ""
   # -- Extra environment variables for the orchestrator (non-secret config)
   # Example: LOG_LEVEL: info
   env: {}
@@ -34,6 +36,10 @@ orchestrator:
   # - secretRef:
   #     name: terraplane-orchestrator
   envFrom: []
+  # -- Extra PodSpec volumes (pass-through). Chart does not interpret volume types.
+  extraVolumes: []
+  # -- Extra volumeMounts on the orchestrator container (pass-through)
+  extraVolumeMounts: []
   # -- Pod resources
   resources: {}
   service:
@@ -65,6 +71,12 @@ agentDefaults:
   envFrom: []
   # -- WebSocket URL agents use to reach the orchestrator (required when agents is non-empty). Example: wss://terraplane.example.com/ws
   orchestratorURL: ""
+  # -- Existing ServiceAccount name for agent pods (chart does not create it)
+  serviceAccountName: ""
+  # -- Extra PodSpec volumes for all agents (concatenated with agents[].extraVolumes). Pass-through; chart does not interpret volume types.
+  extraVolumes: []
+  # -- Extra volumeMounts for all agents (concatenated with agents[].extraVolumeMounts). Applied after work/ssh mounts.
+  extraVolumeMounts: []
   # -- Agent working directory (workspace + terraform bins)
   workDir: /var/terraplane/work
   # -- Default pod resources for agents
@@ -92,6 +104,9 @@ agentDefaults:
 # - name: agent-dev
 #   env: {}
 #   envFrom: []
+#   serviceAccountName: terraplane-agent
+#   extraVolumes: []
+#   extraVolumeMounts: []
 #   sshKey:
 #     secretName: agent-dev-ssh
 #   persistence:
