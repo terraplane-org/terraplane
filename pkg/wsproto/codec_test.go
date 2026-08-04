@@ -93,17 +93,45 @@ func TestWritePropagatesConnError(t *testing.T) {
 	require.Contains(t, err.Error(), "write websocket message")
 }
 
+func TestConfigureConnAllowsLargeMessage(t *testing.T) {
+	server, client := testWSPair(t)
+	ctx := context.Background()
+
+	// Default limit is 32 KiB; send something larger to prove ConfigureConn works.
+	// Compression is also negotiated; repetitive payloads compress well.
+	big := make([]byte, 64<<10)
+	for i := range big {
+		big[i] = 'a'
+	}
+	want := &terraplanev1.TerraformEnvelope{
+		JobId: "job-big",
+		Payload: &terraplanev1.TerraformEnvelope_PlanResult{
+			PlanResult: &terraplanev1.PlanResult{
+				Success: true,
+				Output:  string(big),
+			},
+		},
+	}
+	require.NoError(t, wsproto.WriteTerraform(ctx, server, want))
+
+	got, err := wsproto.ReadEnvelope(ctx, client)
+	require.NoError(t, err)
+	require.Equal(t, "job-big", got.GetTerraform().GetJobId())
+	require.Len(t, got.GetTerraform().GetPlanResult().GetOutput(), len(big))
+}
+
 func testWSPair(t *testing.T) (server, client *websocket.Conn) {
 	t.Helper()
 
 	ready := make(chan *websocket.Conn, 1)
 	hold := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := websocket.Accept(w, r, nil)
+		c, err := websocket.Accept(w, r, wsproto.AcceptOptions())
 		if err != nil {
 			t.Errorf("accept: %v", err)
 			return
 		}
+		wsproto.ConfigureConn(c)
 		ready <- c
 		<-hold
 	}))
@@ -112,8 +140,9 @@ func testWSPair(t *testing.T) (server, client *websocket.Conn) {
 		srv.Close()
 	})
 
-	client, _, err := websocket.Dial(context.Background(), srv.URL, nil)
+	client, _, err := websocket.Dial(context.Background(), srv.URL, wsproto.DialOptions(nil))
 	require.NoError(t, err)
+	wsproto.ConfigureConn(client)
 	t.Cleanup(func() { _ = client.CloseNow() })
 
 	select {

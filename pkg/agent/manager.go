@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
@@ -11,6 +12,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/wsproto"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -65,14 +67,13 @@ func (o *manager) Start(ctx context.Context) error {
 }
 
 func (o *manager) runOnce(ctx context.Context) error {
-	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, &websocket.DialOptions{
-		HTTPHeader: map[string][]string{
-			"Authorization": {auth.BearerHeader(o.sharedAuthToken)},
-		},
-	})
+	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, wsproto.DialOptions(http.Header{
+		"Authorization": {auth.BearerHeader(o.sharedAuthToken)},
+	}))
 	if err != nil {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
+	wsproto.ConfigureConn(conn)
 
 	session := NewSession(o.id, conn, o.logger, o.workspaceManager, o.terraformManager)
 

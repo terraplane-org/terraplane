@@ -170,11 +170,12 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, nil)
+	conn, err := websocket.Accept(w, r, wsproto.AcceptOptions())
 	if err != nil {
 		h.logger.Error("Failed to accept websocket connection", "error", err)
 		return
 	}
+	wsproto.ConfigureConn(conn)
 
 	helloCtx, cancel := context.WithTimeout(r.Context(), agentHelloTimeout)
 	defer cancel()
