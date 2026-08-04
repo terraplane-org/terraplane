@@ -3,19 +3,33 @@ package wsproto
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/coder/websocket"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"google.golang.org/protobuf/proto"
 )
 
-// MaxMessageBytes is the per-message WebSocket read limit. coder/websocket
-// defaults to 32 KiB, which is far too small for Terraform plan/apply output
-// returned as a single protobuf payload.
+// MaxMessageBytes is the per-message WebSocket read limit (uncompressed).
+// coder/websocket defaults to 32 KiB, which is far too small for Terraform
+// plan/apply output returned as a single protobuf payload.
 const MaxMessageBytes = 16 << 20 // 16 MiB
 
 func ConfigureConn(conn *websocket.Conn) {
 	conn.SetReadLimit(MaxMessageBytes)
+}
+
+func AcceptOptions() *websocket.AcceptOptions {
+	return &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionContextTakeover,
+	}
+}
+
+func DialOptions(header http.Header) *websocket.DialOptions {
+	return &websocket.DialOptions{
+		HTTPHeader:      header,
+		CompressionMode: websocket.CompressionContextTakeover,
+	}
 }
 
 func Write(ctx context.Context, conn *websocket.Conn, msg proto.Message) error {

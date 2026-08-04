@@ -95,11 +95,10 @@ func TestWritePropagatesConnError(t *testing.T) {
 
 func TestConfigureConnAllowsLargeMessage(t *testing.T) {
 	server, client := testWSPair(t)
-	wsproto.ConfigureConn(server)
-	wsproto.ConfigureConn(client)
 	ctx := context.Background()
 
 	// Default limit is 32 KiB; send something larger to prove ConfigureConn works.
+	// Compression is also negotiated; repetitive payloads compress well.
 	big := make([]byte, 64<<10)
 	for i := range big {
 		big[i] = 'a'
@@ -127,11 +126,12 @@ func testWSPair(t *testing.T) (server, client *websocket.Conn) {
 	ready := make(chan *websocket.Conn, 1)
 	hold := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := websocket.Accept(w, r, nil)
+		c, err := websocket.Accept(w, r, wsproto.AcceptOptions())
 		if err != nil {
 			t.Errorf("accept: %v", err)
 			return
 		}
+		wsproto.ConfigureConn(c)
 		ready <- c
 		<-hold
 	}))
@@ -140,8 +140,9 @@ func testWSPair(t *testing.T) (server, client *websocket.Conn) {
 		srv.Close()
 	})
 
-	client, _, err := websocket.Dial(context.Background(), srv.URL, nil)
+	client, _, err := websocket.Dial(context.Background(), srv.URL, wsproto.DialOptions(nil))
 	require.NoError(t, err)
+	wsproto.ConfigureConn(client)
 	t.Cleanup(func() { _ = client.CloseNow() })
 
 	select {
