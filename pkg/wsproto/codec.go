@@ -9,6 +9,15 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// MaxMessageBytes is the per-message WebSocket read limit. coder/websocket
+// defaults to 32 KiB, which is far too small for Terraform plan/apply output
+// returned as a single protobuf payload.
+const MaxMessageBytes = 16 << 20 // 16 MiB
+
+func ConfigureConn(conn *websocket.Conn) {
+	conn.SetReadLimit(MaxMessageBytes)
+}
+
 func Write(ctx context.Context, conn *websocket.Conn, msg proto.Message) error {
 	data, err := proto.Marshal(msg)
 	if err != nil {

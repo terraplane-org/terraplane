@@ -11,6 +11,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/wsproto"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -73,6 +74,7 @@ func (o *manager) runOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
+	wsproto.ConfigureConn(conn)
 
 	session := NewSession(o.id, conn, o.logger, o.workspaceManager, o.terraformManager)
 
