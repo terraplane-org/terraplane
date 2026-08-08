@@ -130,4 +130,4 @@ Early / under active development. APIs, config shape, and agent protocol may cha
 
 ## License
 
-TBD
+[MIT](LICENSE). Keep the copyright and permission notice; otherwise use it however you want.
