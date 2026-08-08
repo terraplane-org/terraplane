@@ -4,18 +4,21 @@ FROM golang:1.25.12-bookworm AS builder
 
 WORKDIR /src
 
+# Community edition is enough for migrate status/apply and is ~90MB smaller
+# than the proprietary atlas binary. Fetch before COPY . so code changes
+# do not invalidate this layer.
+ARG ATLAS_VERSION=v1.2.0
+ARG TARGETARCH=amd64
+RUN mkdir -p /out \
+    && curl -sSfL "https://release.ariga.io/atlas/atlas-community-linux-${TARGETARCH}-${ATLAS_VERSION}" \
+      -o /out/atlas \
+    && chmod +x /out/atlas
+
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/terraplane .
-
-# Community edition is enough for migrate status/apply and is ~90MB smaller
-# than the proprietary atlas binary.
-ARG ATLAS_VERSION=v1.2.0
-RUN curl -sSfL "https://release.ariga.io/atlas/atlas-community-linux-amd64-${ATLAS_VERSION}" \
-      -o /out/atlas \
-    && chmod +x /out/atlas
 
 FROM debian:bookworm-slim
 
