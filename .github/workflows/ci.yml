@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   lint:
@@ -128,7 +129,6 @@ jobs:
   docker:
     name: Docker build
     runs-on: ubuntu-latest
-    needs: [test]
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.3
@@ -141,8 +141,9 @@ jobs:
         with:
           context: .
           push: false
-          load: true
           tags: terraplane:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   helm:
     name: Helm chart
