@@ -23,6 +23,7 @@ const agentHelloTimeout = 10 * time.Second
 type handler struct {
 	logger          log.Logger
 	scmProvider     scm.Provider
+	scmPublisher    scm.Publisher
 	mux             *http.ServeMux
 	sessionRegistry agentsession.Registry
 	sessionFactory  agentsession.Factory
@@ -35,6 +36,7 @@ type handler struct {
 func NewHandler(
 	logger log.Logger,
 	scmProvider scm.Provider,
+	scmPublisher scm.Publisher,
 	sessionRegistry agentsession.Registry,
 	sessionFactory agentsession.Factory,
 	planService services.PlanService,
@@ -46,6 +48,7 @@ func NewHandler(
 		logger:          logger,
 		mux:             http.NewServeMux(),
 		scmProvider:     scmProvider,
+		scmPublisher:    scmPublisher,
 		sessionRegistry: sessionRegistry,
 		sessionFactory:  sessionFactory,
 		planService:     planService,
@@ -77,6 +80,7 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, webhook := range webhooks {
+
 		cmd := command.ParseWebhook(&webhook)
 		if cmd.Kind == command.KindUnknown {
 			h.logger.Debug(
@@ -87,6 +91,21 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 				"comment", webhook.FullCommand,
 			)
 			continue
+		}
+		// TODO: Is this really the appropriate place to react to the comment?
+		if err := h.scmPublisher.AcknowledgeComment(
+			r.Context(),
+			webhook.RepositorySlug,
+			webhook.PRNumber,
+			webhook.CommentID,
+		); err != nil {
+			h.logger.Error(
+				"Failed to acknowledge pull request comment",
+				"repo", webhook.RepositorySlug,
+				"pr", webhook.PRNumber,
+				"comment_id", webhook.CommentID,
+				"error", err,
+			)
 		}
 		h.handleCommand(r.Context(), cmd)
 	}

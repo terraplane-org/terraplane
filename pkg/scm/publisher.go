@@ -7,4 +7,5 @@ import "context"
 type Publisher interface {
 	Name() string
 	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
+	AcknowledgeComment(ctx context.Context, repo string, prNumber int, commentID int) error
 }

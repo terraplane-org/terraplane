@@ -12,7 +12,14 @@ type publisher struct {
 	client Client
 }
 
-// WriteComment implements scm.Publisher.
+func (p *publisher) AcknowledgeComment(ctx context.Context, repo string, prNumber int, commentID int) error {
+	if err := p.client.ReactToComment(ctx, repo, commentID, "+1"); err != nil {
+		p.logger.Error("Failed to react to PR comment", "repo", repo, "pr", prNumber, "error", err)
+		return err
+	}
+	return nil
+}
+
 func (p *publisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
 	if err := p.client.WriteComment(ctx, repo, prNumber, body); err != nil {
 		p.logger.Error("Failed to write PR comment", "repo", repo, "pr", prNumber, "error", err)

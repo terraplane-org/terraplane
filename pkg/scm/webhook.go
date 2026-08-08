@@ -6,5 +6,6 @@ type Webhook struct {
 	FullCommand    string
 	TriggeringUser string
 	CommitSHA      string
+	CommentID      int
 	ExtraData      map[string]any
 }
