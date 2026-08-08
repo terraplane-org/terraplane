@@ -18,7 +18,7 @@ kubectl -n terraplane create secret generic terraplane-orchestrator \
   --from-literal=ORCHESTRATOR_GITHUB_ACCESS_TOKEN='ghp_...' \
   --from-literal=ORCHESTRATOR_GITHUB_WEBHOOK_SECRET='...'
 
-helm install terraplane-orch oci://registry-1.docker.io/xyzjace/terraplane \
+helm install terraplane-orch oci://ghcr.io/terraplane-org/charts/terraplane \
   --version 0.1.2 \
   -n terraplane \
   -f orch-values.yaml
@@ -26,8 +26,7 @@ helm install terraplane-orch oci://registry-1.docker.io/xyzjace/terraplane \
 
 ```yaml
 # orch-values.yaml
-image:
-  tag: "<git-sha>"
+# image.tag defaults to Chart.appVersion when omitted
 
 orchestrator:
   enabled: true
@@ -60,7 +59,7 @@ kubectl -n terraplane-agents create secret generic agent-dev-ssh \
 kubectl -n terraplane-agents create secret generic agent-prod-ssh \
   --from-file=ssh-private-key=./id_ed25519_prod
 
-helm install terraplane-agents oci://registry-1.docker.io/xyzjace/terraplane \
+helm install terraplane-agents oci://ghcr.io/terraplane-org/charts/terraplane \
   --version 0.1.2 \
   -n terraplane-agents \
   -f agents-values.yaml
@@ -69,9 +68,6 @@ helm install terraplane-agents oci://registry-1.docker.io/xyzjace/terraplane \
 ```yaml
 # agents-values.yaml
 namespaceOverride: terraplane-agents
-
-image:
-  tag: "<git-sha>"
 
 orchestrator:
   enabled: false
@@ -140,14 +136,14 @@ agentDefaults:
 
 `agentDefaults.extraVolumes` / `extraVolumeMounts` are concatenated with the matching per-agent lists (same merge rule as `envFrom`). Per-agent `serviceAccountName` wins when non-empty.
 
-Image tags for the app are git SHAs (`xyzjace/terraplane:<sha>`). Chart versions are semver in `Chart.yaml`. Set `image.tag` to a published SHA when installing.
+Image tags follow release semver (`ghcr.io/terraplane-org/terraplane:<version>`). Chart `appVersion` matches the release; leave `image.tag` empty to use it. See [docs/release.md](../../docs/release.md).
 
 ## Values
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | namespaceOverride | string | `"terraplane"` | Override the release namespace. Set to `""` to use `helm -n` / Release.Namespace only. |
-| image.repository | string | `"xyzjace/terraplane"` | Container image repository |
+| image.repository | string | `"ghcr.io/terraplane-org/terraplane"` | Container image repository |
 | image.tag | string | `""` | Image tag (defaults to Chart.AppVersion when empty) |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | imagePullSecrets | list | `[]` | Optional image pull secrets |

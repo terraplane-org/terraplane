@@ -64,8 +64,14 @@ protoc-gen:
 build-linux:
 		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BIN_TERRAPLANE_LINUX) -v .
 
+build-linux-arm64:
+		CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BIN_TERRAPLANE)-linux-arm64 -v .
+
 build-darwin:
 		CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOBUILD) -o $(BIN_TERRAPLANE_DARWIN) -v .
+
+build-darwin-amd64:
+		CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) -o $(BIN_TERRAPLANE)-darwin-amd64 -v .
 
 lint:
 	$(GOLANGCI_LINT) run

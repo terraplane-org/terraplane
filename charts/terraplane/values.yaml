@@ -6,8 +6,8 @@ namespaceOverride: ""
 
 image:
   # -- Container image repository
-  repository: xyzjace/terraplane
-  # -- Image tag (published git SHA from CI). Required for install.
+  repository: ghcr.io/terraplane-org/terraplane
+  # -- Image tag (defaults to Chart.AppVersion when empty)
   tag: ""
   # -- Image pull policy
   pullPolicy: IfNotPresent

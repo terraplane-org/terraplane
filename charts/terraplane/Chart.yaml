@@ -3,10 +3,10 @@ name: terraplane
 description: PR-driven Terraform automation with remote agents
 type: application
 version: 0.1.2
-appVersion: "0.1.0"
-home: https://github.com/xyzjace/terraplane
+appVersion: "0.1.2"
+home: https://github.com/terraplane-org/terraplane
 sources:
-  - https://github.com/xyzjace/terraplane
+  - https://github.com/terraplane-org/terraplane
 keywords:
   - terraform
   - ci
