@@ -112,13 +112,15 @@ Config is environment variables (optional `.env` via Viper). Highlights:
 A minimal chart lives in [`charts/terraplane`](charts/terraplane). It runs one orchestrator and N agents, expects an external database, and consumes existing Kubernetes Secrets (no cloud secret-manager templates in the chart).
 
 ```bash
-helm install terraplane oci://registry-1.docker.io/xyzjace/terraplane \
+helm install terraplane oci://ghcr.io/terraplane-org/charts/terraplane \
   --version 0.1.2 \
   -n terraplane --create-namespace \
   -f my-values.yaml
 ```
 
 Typical production layout is **two releases**: orchestrator (reachable for GitHub webhooks) and agents (`orchestrator.enabled=false` + `agentDefaults.orchestratorURL`). See [charts/terraplane/README.md](charts/terraplane/README.md) for values, secrets examples, and split-install notes.
+
+Binary downloads ship on [GitHub Releases](https://github.com/terraplane-org/terraplane/releases). How to cut a release: [docs/release.md](docs/release.md).
 
 ### Docker Compose
 
