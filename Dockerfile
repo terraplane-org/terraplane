@@ -8,8 +8,9 @@ WORKDIR /src
 # than the proprietary atlas binary. Fetch before COPY . so code changes
 # do not invalidate this layer.
 ARG ATLAS_VERSION=v1.2.0
+ARG TARGETARCH=amd64
 RUN mkdir -p /out \
-    && curl -sSfL "https://release.ariga.io/atlas/atlas-community-linux-amd64-${ATLAS_VERSION}" \
+    && curl -sSfL "https://release.ariga.io/atlas/atlas-community-linux-${TARGETARCH}-${ATLAS_VERSION}" \
       -o /out/atlas \
     && chmod +x /out/atlas
 
