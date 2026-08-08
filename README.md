@@ -3,132 +3,48 @@
 </p>
 <h1 align="center">Terraplane</h1>
 <p align="center">PR-driven Terraform automation with remote agents.</p>
+<p align="center">
+  <a href="https://terraplane.io">Website</a> ·
+  <a href="https://terraplane.io/docs">Docs</a> ·
+  <a href="https://terraplane.io/docs/quickstart">Quickstart</a> ·
+  <a href="https://github.com/terraplane-org/terraplane/releases">Releases</a>
+</p>
 
 ---
 
 # Still baking
-This repository is so WIP it hurts. Nothing in here is designed for public consumption, nor should it be relied on for anything other than interest. It's a project I've wanted to make for a long but I've yet to determine if I have the capacity to see it through.
 
-## Why Terraplane?
+This repository is so WIP it hurts. Nothing in here is designed for public consumption, nor should it be relied on for anything other than interest. It's a project I've wanted to make for a long time, but I've yet to determine if I have the capacity to see it through.
 
-Terraform changes should be reviewable, repeatable, and tied to pull requests — not tribal knowledge or ad-hoc laptop runs. Tools like Atlantis proved that model works: comment on a PR, get a plan, apply when ready.
+---
 
-Terraplane keeps that workflow and re-shapes the execution model. Instead of one process that both receives webhooks *and* runs Terraform, Terraplane splits into:
+## What it is
 
-- an **orchestrator** — webhooks, job state, PR feedback (can live on the public internet)
-- **agents** — long-lived workers that connect *out* over WebSocket and run Terraform where credentials and network access actually live
+Terraform belongs in the pull request, and the runner belongs inside your network. Terraplane keeps an Atlantis-style comment workflow (`plan` / `apply` / `unlock`) but splits into:
 
-That split is the point. A lot of real infrastructure isn’t reachable from outside your environment — private APIs, internal control planes, VPC-only endpoints, on-prem systems. With a single remote runner you’d either expose those targets (firewall holes, peering, public load balancers) or give up on automating them. Agents sit *inside* the network that can already reach those resources; the orchestrator never needs a path in.
+- an **orchestrator** — webhooks, jobs, locks, PR feedback
+- **agents** — dial out over WebSocket and run Terraform where credentials and network access already live
 
-Stacks declare which agent should handle them. Multi-account / multi-environment setups become a routing problem, not “stuff every credential into one box” or “punch a hole so the control plane can see the private thing.”
+Stacks in `terraplane.yaml` route work to the right agent. Details: [Why Terraplane](https://terraplane.io/docs/why), [How it works](https://terraplane.io/docs/how-it-works).
 
-## Acknowledgements
+## Get started
 
-**Terraplane would not exist without [Atlantis](https://www.runatlantis.io/).**
+**[Quickstart](https://terraplane.io/docs/quickstart)** is the path from zero to a PR plan. Everything else lives in the [docs](https://terraplane.io/docs) — configuration, deployment, local Make targets.
 
-Atlantis set the standard for PR-based Terraform: comment-driven plans and applies, locking, and feedback on the PR itself. Terraplane borrows heavily from that UX and mental model. If you’ve used Atlantis, the commands will feel familiar on purpose.
-
-Where Terraplane diverges is architecture — remote agents and stack→agent routing — not the idea that Terraform belongs in the pull request.
-
-## How it works
-
-```
-GitHub PR comment
-       │
-       ▼
-┌──────────────┐     WebSocket      ┌─────────────────┐
-│ Orchestrator │ ◄────────────────► │ Agent(s)        │
-│ webhooks,    │                    │ clone, plan,    │
-│ jobs, locks, │                    │ apply           │
-│ PR comments  │                    └─────────────────┘
-└──────────────┘
-```
-
-1. A PR comment like `terraplane plan -s stg-apse2-foundation` hits the orchestrator.
-2. The orchestrator reads `terraplane.yaml` from the repo, resolves stacks, and dispatches work to the named agent.
-3. The agent runs Terraform and streams results back.
-4. The orchestrator posts plan/apply/unlock feedback on the PR.
-
-### Repo config
-
-Each Terraform repo ships a `terraplane.yaml`:
-
-```yaml
-stacks:
-  - name: stg-apse2-foundation
-    agent: agent-dev
-    dir: terraform/environments/staging/ap-southeast-2/foundation
-```
-
-### Commands
-
-| Comment | Effect |
-|---------|--------|
-| `terraplane plan` | Plan all stacks (or `-s <name>`) |
-| `terraplane apply` | Apply resolved stacks |
-| `terraplane unlock` | Clear locks/jobs for stacks |
-
-## Local development
-
-```bash
-# Prerequisites: Go (see go.mod), Docker, a GitHub deploy key for agents
-
-cp .env-example .env   # fill in GitHub secrets, agent key path, etc.
-docker compose up --build
-```
-
-Compose brings up Postgres, runs migrations, starts the orchestrator on `:8080`, and boots agent containers.
-
-Useful Make targets:
-
-| Target | Description |
-|--------|-------------|
-| `make build` | Build `./bin/terraplane` |
-| `make unit-test` | Vet + unit tests |
-| `make generate` | `go generate` (mocks, etc.) |
-| `make run-orchestrator` / `make run-agent` | Run binaries locally |
-
-## Configuration
-
-Config is environment variables (optional `.env` via Viper). Highlights:
-
-| Variable | Role |
-|----------|------|
-| `ORCHESTRATOR_GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC |
-| `ORCHESTRATOR_GITHUB_ACCESS_TOKEN` | GitHub API (files, comments) |
-| `ORCHESTRATOR_AGENT_PING_INTERVAL` | Agent WS ping interval (default `30s`) |
-| `ORCHESTRATOR_AGENT_PONG_TIMEOUT` | Wait for pong after ping (default `3s`) |
-| `ORCHESTRATOR_AGENT_MISSED_HEARTBEATS` | Consecutive missed pongs before disconnect (default `2`) |
-| `DATABASE_URL` / `DATABASE_DRIVER` | Job/lock persistence |
-| `SHARED_AUTH_TOKEN` | Orchestrator ↔ agent auth |
-| `AGENT_ID` | Must match `agent:` in `terraplane.yaml` |
-| `AGENT_ORCHESTRATOR_URL` | WebSocket URL (`ws://…/ws`) |
-| `AGENT_SCM_SSH_KEY_PATH` | Deploy key for clone |
-
-## Deployment
-
-### Helm (Kubernetes)
-
-A minimal chart lives in [`charts/terraplane`](charts/terraplane). It runs one orchestrator and N agents, expects an external database, and consumes existing Kubernetes Secrets (no cloud secret-manager templates in the chart).
+Helm:
 
 ```bash
 helm install terraplane oci://ghcr.io/terraplane-org/charts/terraplane \
-  --version 0.1.2 \
+  --version 0.1.3 \
   -n terraplane --create-namespace \
   -f my-values.yaml
 ```
 
-Typical production layout is **two releases**: orchestrator (reachable for GitHub webhooks) and agents (`orchestrator.enabled=false` + `agentDefaults.orchestratorURL`). See [charts/terraplane/README.md](charts/terraplane/README.md) for values, secrets examples, and split-install notes.
+Chart values and split-install notes: [`charts/terraplane`](charts/terraplane).
 
-Binary downloads ship on [GitHub Releases](https://github.com/terraplane-org/terraplane/releases). How to cut a release: [docs/release.md](docs/release.md).
+## Acknowledgements
 
-### Docker Compose
-
-For local/dev, Docker Compose remains the quickest path (Postgres + migrate + orchestrator + agents).
-
-## Status
-
-Early / under active development. APIs, config shape, and agent protocol may change.
+Terraplane would not exist without [Atlantis](https://www.runatlantis.io/). The PR-comment UX is intentional; the remote-agent split is where Terraplane diverges.
 
 ## License
 
