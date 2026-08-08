@@ -1,10 +1,8 @@
 <p align="center">
-  <img src="docs/assets/terraplane_logo.png" alt="Terraplane — a control plane for your infrastructure agents" width="420">
+  <img src="docs/assets/terraplane_logo_icon.svg" alt="Terraplane" width="96">
 </p>
-
-<p align="center">
-  PR-driven Terraform automation with remote agents.
-</p>
+<h1 align="center">Terraplane</h1>
+<p align="center">PR-driven Terraform automation with remote agents.</p>
 
 ---
 

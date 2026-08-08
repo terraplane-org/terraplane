@@ -1,0 +1,8 @@
+<svg viewBox="-62 -50 124 96" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Terraplane</title>
+  <g fill="none" stroke="#184f95" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M -56 40 L 0 -44 L 56 40" opacity="0.3"/>
+    <path d="M -38 40 L 0 -14 L 38 40" opacity="0.6"/>
+    <path d="M -20 40 L -8 22 L 8 22 L 20 40"/>
+  </g>
+</svg>
