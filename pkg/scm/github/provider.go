@@ -124,6 +124,7 @@ func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook, commitSHA st
 		FullCommand:    webhook.Comment.Body,
 		TriggeringUser: webhook.Comment.User.Login,
 		CommitSHA:      commitSHA,
+		CommentID:      int(webhook.Comment.ID),
 	}
 }
 

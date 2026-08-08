@@ -20,12 +20,39 @@ type Client interface {
 	GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
 	GetFile(ctx context.Context, repo string, path string, revision string) (string, error)
 	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
+	ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error
 }
 
 type client struct {
 	accessToken string
 	httpClient  *http.Client
 	apiURL      string
+}
+
+func (c *client) ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error {
+	u := fmt.Sprintf("%s/repos/%s/issues/comments/%d/reactions", c.apiURL, repo, commentID)
+	payloadBytes, err := json.Marshal(map[string]string{"content": reaction})
+	if err != nil {
+		return fmt.Errorf("failed to marshal reaction payload for repository %s comment #%d: %w", repo, commentID, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute GitHub API request to react to comment in repository %s comment #%d: %w", repo, commentID, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("GitHub API request to react to comment in repository %s comment #%d returned unexpected status %s: %s", repo, commentID, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
 }
 
 func (c *client) GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error) {

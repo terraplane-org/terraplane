@@ -40,6 +40,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		webserver.NewServer,
 		orchestrator.NewManager,
 		github.NewPublisher,
+		wire.Bind(new(orchestrator.SchemaChecker), new(*storage.DB)),
 	)
 	return nil, nil
 }
