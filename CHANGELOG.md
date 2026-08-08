@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-08
+
 ### Added
 - GitHub Actions release workflow: semver tags publish GHCR images, Helm OCI charts, and binaries
 - MIT license
