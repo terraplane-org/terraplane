@@ -154,6 +154,57 @@ func (s *ClientSuite) TestWriteCommentSuccess() {
 	require.NoError(s.T(), c.WriteComment(context.Background(), "acme/infra", 9, "hello pr"))
 }
 
+func (s *ClientSuite) TestReactToCommentSuccess() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), http.MethodPost, r.Method)
+		require.Equal(s.T(), "/repos/acme/infra/issues/comments/42/reactions", r.URL.Path)
+		require.Equal(s.T(), "application/json", r.Header.Get("Content-Type"))
+		require.Equal(s.T(), "Bearer token", r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(s.T(), err)
+		require.JSONEq(s.T(), `{"content":"+1"}`, string(body))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":1,"content":"+1"}`)
+	})
+	require.NoError(s.T(), c.ReactToComment(context.Background(), "acme/infra", 42, "+1"))
+}
+
+func (s *ClientSuite) TestReactToCommentNonCreated() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"message":"Reactions not allowed"}`)
+	})
+	err := c.ReactToComment(context.Background(), "acme/infra", 42, "+1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "unexpected status")
+	require.Contains(s.T(), err.Error(), "Reactions not allowed")
+}
+
+func (s *ClientSuite) TestReactToCommentTransportError() {
+	c := &client{
+		accessToken: "token",
+		httpClient:  http.DefaultClient,
+		apiURL:      "http://127.0.0.1:1",
+	}
+	err := c.ReactToComment(context.Background(), "acme/infra", 42, "+1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to execute GitHub API request to react to comment")
+}
+
+func (s *ClientSuite) TestReactToCommentRequestBuildError() {
+	c := &client{accessToken: "token", httpClient: http.DefaultClient, apiURL: "http://example.com/\x00"}
+	err := c.ReactToComment(context.Background(), "acme/infra", 42, "+1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
+}
+
+func (s *ClientSuite) TestReactToCommentMissingAccessToken() {
+	c := &client{accessToken: "", httpClient: http.DefaultClient, apiURL: "http://example.invalid"}
+	err := c.ReactToComment(context.Background(), "acme/infra", 42, "+1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "ORCHESTRATOR_GITHUB_ACCESS_TOKEN")
+}
+
 func (s *ClientSuite) TestWriteCommentNonCreated() {
 	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

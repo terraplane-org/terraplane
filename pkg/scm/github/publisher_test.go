@@ -38,3 +38,23 @@ func TestPublisherWriteCommentPropagatesError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "api down")
 }
+
+func TestPublisherAcknowledgeCommentSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().ReactToComment(gomock.Any(), "acme/infra", 42, "+1").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	require.NoError(t, pub.AcknowledgeComment(context.Background(), "acme/infra", 3, 42))
+}
+
+func TestPublisherAcknowledgeCommentPropagatesError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().ReactToComment(gomock.Any(), "acme/infra", 42, "+1").Return(errors.New("react denied"))
+
+	pub := NewPublisher(log.Noop(), client)
+	err := pub.AcknowledgeComment(context.Background(), "acme/infra", 3, 42)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "react denied")
+}

@@ -70,6 +70,20 @@ func (mr *MockClientMockRecorder) GetFile(ctx, repo, path, revision any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFile", reflect.TypeOf((*MockClient)(nil).GetFile), ctx, repo, path, revision)
 }
 
+// ReactToComment mocks base method.
+func (m *MockClient) ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReactToComment", ctx, repo, commentID, reaction)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReactToComment indicates an expected call of ReactToComment.
+func (mr *MockClientMockRecorder) ReactToComment(ctx, repo, commentID, reaction any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReactToComment", reflect.TypeOf((*MockClient)(nil).ReactToComment), ctx, repo, commentID, reaction)
+}
+
 // WriteComment mocks base method.
 func (m *MockClient) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
 	m.ctrl.T.Helper()

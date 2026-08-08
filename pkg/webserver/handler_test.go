@@ -86,13 +86,14 @@ func (s *stubSession) Write(context.Context, *terraplanev1.TerraformEnvelope) er
 
 type HandlerSuite struct {
 	suite.Suite
-	ctrl     *gomock.Controller
-	scm      *mock_scm.MockProvider
-	registry agentsession.Registry
-	plan     *stubPlan
-	apply    *stubApply
-	unlock   *stubUnlock
-	handler  http.Handler
+	ctrl      *gomock.Controller
+	scm       *mock_scm.MockProvider
+	publisher *mock_scm.MockPublisher
+	registry  agentsession.Registry
+	plan      *stubPlan
+	apply     *stubApply
+	unlock    *stubUnlock
+	handler   http.Handler
 }
 
 func TestHandlerSuite(t *testing.T) {
@@ -102,6 +103,7 @@ func TestHandlerSuite(t *testing.T) {
 func (s *HandlerSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
+	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.registry = agentsession.NewRegistry(log.Noop())
 	s.plan = &stubPlan{called: make(chan command.PlanCommand, 1)}
 	s.apply = &stubApply{called: make(chan command.ApplyCommand, 1)}
@@ -109,6 +111,7 @@ func (s *HandlerSuite) SetupTest() {
 	s.handler = webserver.NewHandler(
 		log.Noop(),
 		s.scm,
+		s.publisher,
 		s.registry,
 		stubFactory{session: &stubSession{id: "agent-1"}},
 		s.plan,
@@ -172,10 +175,13 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 
 func (s *HandlerSuite) TestWebhookDispatchesPlanApplyUnlock() {
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan -s a", TriggeringUser: "jace", CommitSHA: "abc"},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply -s a", TriggeringUser: "jace", CommitSHA: "abc"},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane unlock -s a", TriggeringUser: "jace", CommitSHA: "abc"},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 11},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 12},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane unlock -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 13},
 	}, nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 11).Return(nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 12).Return(nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 13).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
 	rec := httptest.NewRecorder()
@@ -209,10 +215,13 @@ func (s *HandlerSuite) TestWebhookServiceErrorsAreLoggedNotReturned() {
 	s.unlock.err = errors.New("unlock failed")
 
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan", TriggeringUser: "jace", CommitSHA: "abc"},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply", TriggeringUser: "jace", CommitSHA: "abc"},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane unlock", TriggeringUser: "jace", CommitSHA: "abc"},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 21},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 22},
+		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane unlock", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 23},
 	}, nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 21).Return(nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 22).Return(nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 23).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
 	rec := httptest.NewRecorder()
@@ -222,6 +231,30 @@ func (s *HandlerSuite) TestWebhookServiceErrorsAreLoggedNotReturned() {
 	<-s.plan.called
 	<-s.apply.called
 	<-s.unlock.called
+}
+
+func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillDispatches() {
+	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{{
+		RepositorySlug: "acme/infra",
+		PRNumber:       1,
+		FullCommand:    "terraplane plan -s a",
+		TriggeringUser: "jace",
+		CommitSHA:      "abc",
+		CommentID:      99,
+	}}, nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 99).Return(errors.New("react failed"))
+
+	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+
+	select {
+	case plan := <-s.plan.called:
+		require.Equal(s.T(), []string{"a"}, plan.Stacks)
+	case <-time.After(2 * time.Second):
+		s.T().Fatal("timed out waiting for plan")
+	}
 }
 
 func (s *HandlerSuite) TestWebsocketUnauthorized() {
@@ -243,7 +276,7 @@ func (s *HandlerSuite) TestWebsocketHappyPath() {
 	runCh := make(chan struct{})
 	sess := &stubSession{id: "agent-42", runCh: runCh}
 	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, s.registry, stubFactory{session: sess},
+		log.Noop(), s.scm, s.publisher, s.registry, stubFactory{session: sess},
 		s.plan, s.apply, s.unlock,
 		&config.Config{SharedAuthToken: "secret"},
 	)
@@ -336,7 +369,7 @@ func (s *HandlerSuite) TestWebsocketRegisterFailure() {
 	reg.EXPECT().Register(gomock.Any(), gomock.Any()).Return(errors.New("registry full"))
 
 	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, reg, stubFactory{session: &stubSession{id: "agent-1"}},
+		log.Noop(), s.scm, s.publisher, reg, stubFactory{session: &stubSession{id: "agent-1"}},
 		s.plan, s.apply, s.unlock,
 		&config.Config{SharedAuthToken: "secret"},
 	)
@@ -365,7 +398,7 @@ func (s *HandlerSuite) TestWebsocketSessionRunErrorIsLogged() {
 	runCh := make(chan struct{})
 	sess := &stubSession{id: "agent-err", runErr: errors.New("session boom"), runCh: runCh}
 	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, s.registry, stubFactory{session: sess},
+		log.Noop(), s.scm, s.publisher, s.registry, stubFactory{session: sess},
 		s.plan, s.apply, s.unlock,
 		&config.Config{SharedAuthToken: "secret"},
 	)

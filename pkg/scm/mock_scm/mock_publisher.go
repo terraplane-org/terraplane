@@ -40,6 +40,20 @@ func (m *MockPublisher) EXPECT() *MockPublisherMockRecorder {
 	return m.recorder
 }
 
+// AcknowledgeComment mocks base method.
+func (m *MockPublisher) AcknowledgeComment(ctx context.Context, repo string, prNumber, commentID int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcknowledgeComment", ctx, repo, prNumber, commentID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AcknowledgeComment indicates an expected call of AcknowledgeComment.
+func (mr *MockPublisherMockRecorder) AcknowledgeComment(ctx, repo, prNumber, commentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcknowledgeComment", reflect.TypeOf((*MockPublisher)(nil).AcknowledgeComment), ctx, repo, prNumber, commentID)
+}
+
 // Name mocks base method.
 func (m *MockPublisher) Name() string {
 	m.ctrl.T.Helper()
