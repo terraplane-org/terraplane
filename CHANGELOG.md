@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+
+## [0.1.4] - 2026-08-10
+
+### Changed
 - `terraplane.yaml` is now environment-scoped: stacks live under `environments`, agents can be set per environment (optional stack override), and stack names must be globally unique
 - Comment commands accept `-e` / `-env` to plan, apply, or unlock all stacks in an environment (combine with `-s` for intersection)
 - PR result comments: terraplane-branded layout with stack header, dir/commit meta, add/change/destroy table, and collapsed output (less Atlantis-like)
