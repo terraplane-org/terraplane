@@ -20,14 +20,14 @@ func TestPlanResultComment(t *testing.T) {
 		output := "Terraform will perform the following actions:\n\nPlan: 1 to add, 2 to change, 3 to destroy.\n"
 		got := feedback.PlanResultComment(job, true, output, "")
 
-		require.Contains(t, got, "**terraplane** · plan")
-		require.Contains(t, got, "### `stg-foundation` · ✅ passed")
-		require.Contains(t, got, "`terraform/environments/staging/foundation` · `abcdef0`")
+		require.Contains(t, got, "### `stg-foundation` · plan · ✅ passed")
+		require.Contains(t, got, "`terraform/environments/staging/foundation@abcdef0`")
 		require.Contains(t, got, "```diff\n+ 1 add\n  2 change\n- 3 destroy\n```")
 		require.Contains(t, got, "> [!CAUTION]")
 		require.Contains(t, got, "destroys **3**")
 		require.Contains(t, got, "<summary>Output</summary>")
 		require.Contains(t, got, "terraplane apply -s stg-foundation")
+		require.NotContains(t, got, "**terraplane**")
 		require.NotContains(t, got, "❌")
 	})
 
@@ -42,7 +42,7 @@ func TestPlanResultComment(t *testing.T) {
 
 	t.Run("failure with error and no apply hint", func(t *testing.T) {
 		got := feedback.PlanResultComment(job, false, "no plan line", "boom")
-		require.Contains(t, got, "### `stg-foundation` · ❌ failed")
+		require.Contains(t, got, "### `stg-foundation` · plan · ❌ failed")
 		require.Contains(t, got, "> [!CAUTION]")
 		require.Contains(t, got, "boom")
 		require.Contains(t, got, "<summary>Output</summary>")
@@ -52,7 +52,7 @@ func TestPlanResultComment(t *testing.T) {
 
 	t.Run("empty output and error", func(t *testing.T) {
 		got := feedback.PlanResultComment(&models.Job{StackName: "stg-foundation"}, true, "   ", "  ")
-		require.Equal(t, "**terraplane** · plan\n\n### `stg-foundation` · ✅ passed\n\nApply when ready:\n\n```\nterraplane apply -s stg-foundation\n```\n", got)
+		require.Equal(t, "### `stg-foundation` · plan · ✅ passed\n\nApply when ready:\n\n```\nterraplane apply -s stg-foundation\n```\n", got)
 	})
 
 	t.Run("extends fence for backticks in body", func(t *testing.T) {
@@ -79,6 +79,12 @@ func TestPlanResultComment(t *testing.T) {
 		got := feedback.PlanResultComment(short, true, "", "")
 		require.Contains(t, got, "`abc`")
 	})
+
+	t.Run("dir only meta", func(t *testing.T) {
+		got := feedback.PlanResultComment(&models.Job{StackName: "s", Dir: "terraform/x"}, true, "", "")
+		require.Contains(t, got, "`terraform/x`")
+		require.NotContains(t, got, "@")
+	})
 }
 
 func TestApplyResultComment(t *testing.T) {
@@ -91,17 +97,17 @@ func TestApplyResultComment(t *testing.T) {
 	t.Run("success with apply summary", func(t *testing.T) {
 		output := "Apply complete! Resources: 1 added, 2 changed, 0 destroyed.\n"
 		got := feedback.ApplyResultComment(job, true, output, "")
-		require.Contains(t, got, "**terraplane** · apply")
-		require.Contains(t, got, "### `stg-foundation` · ✅ passed")
-		require.Contains(t, got, "`terraform/stg` · `deadbee`")
+		require.Contains(t, got, "### `stg-foundation` · apply · ✅ passed")
+		require.Contains(t, got, "`terraform/stg@deadbee`")
 		require.Contains(t, got, "```diff\n+ 1 add\n  2 change\n- 0 destroy\n```")
 		require.Contains(t, got, "<summary>Output</summary>")
 		require.NotContains(t, got, "destroys")
+		require.NotContains(t, got, "**terraplane**")
 	})
 
 	t.Run("failure with error only", func(t *testing.T) {
 		got := feedback.ApplyResultComment(job, false, "", "apply failed")
-		require.Contains(t, got, "### `stg-foundation` · ❌ failed")
+		require.Contains(t, got, "### `stg-foundation` · apply · ❌ failed")
 		require.Contains(t, got, "apply failed")
 		require.NotContains(t, got, "<details>")
 	})
@@ -110,12 +116,12 @@ func TestApplyResultComment(t *testing.T) {
 func TestUnlockResultComment(t *testing.T) {
 	t.Run("with stack", func(t *testing.T) {
 		got := feedback.UnlockResultComment("stg-foundation", true, "")
-		require.Equal(t, "**terraplane** · unlock\n\n### `stg-foundation` · ✅ passed\n", got)
+		require.Equal(t, "### `stg-foundation` · unlock · ✅ passed\n", got)
 	})
 
 	t.Run("without stack", func(t *testing.T) {
 		got := feedback.UnlockResultComment("", false, "unlock failed")
-		require.True(t, strings.HasPrefix(got, "**terraplane** · unlock\n\n### ❌ failed\n"))
+		require.True(t, strings.HasPrefix(got, "### unlock · ❌ failed\n"))
 		require.Contains(t, got, "unlock failed")
 	})
 }

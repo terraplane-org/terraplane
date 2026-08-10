@@ -70,28 +70,26 @@ func UnlockResultComment(stackName string, success bool, errMsg string) string {
 }
 
 func writeHeader(b *strings.Builder, action, stack string, success bool) {
-	b.WriteString("**terraplane** · ")
-	b.WriteString(action)
-	b.WriteString("\n\n")
-	if stack != "" {
-		fmt.Fprintf(b, "### `%s` · %s\n", stack, statusLabel(success))
-	} else {
-		fmt.Fprintf(b, "### %s\n", statusLabel(success))
+	status := statusLabel(success)
+	switch {
+	case stack != "":
+		fmt.Fprintf(b, "### `%s` · %s · %s\n", stack, action, status)
+	default:
+		fmt.Fprintf(b, "### %s · %s\n", action, status)
 	}
 }
 
 func writeMeta(b *strings.Builder, job *models.Job) {
-	parts := make([]string, 0, 2)
-	if dir := strings.TrimSpace(job.Dir); dir != "" {
-		parts = append(parts, fmt.Sprintf("`%s`", dir))
+	dir := strings.TrimSpace(job.Dir)
+	sha := shortSHA(job.CommitSHA)
+	switch {
+	case dir != "" && sha != "":
+		fmt.Fprintf(b, "\n`%s@%s`\n", dir, sha)
+	case dir != "":
+		fmt.Fprintf(b, "\n`%s`\n", dir)
+	case sha != "":
+		fmt.Fprintf(b, "\n`%s`\n", sha)
 	}
-	if sha := shortSHA(job.CommitSHA); sha != "" {
-		parts = append(parts, fmt.Sprintf("`%s`", sha))
-	}
-	if len(parts) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "\n%s\n", strings.Join(parts, " · "))
 }
 
 // writeDelta renders counts in a ```diff fence so GitHub paints adds green and

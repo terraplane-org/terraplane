@@ -44,7 +44,7 @@ func (s *UnlockServiceSuite) TestFetchConfigFailurePublishesFailureComment() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return("", errors.New("404"))
 	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, body string) error {
-			require.Contains(s.T(), body, "**terraplane** · unlock")
+			require.Contains(s.T(), body, "unlock ·")
 			require.Contains(s.T(), body, "failed")
 			require.Contains(s.T(), body, "failed to fetch terraplane.yaml")
 			return nil
@@ -93,7 +93,7 @@ func (s *UnlockServiceSuite) TestLockDeleteFailurePublishesPerStack() {
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a", "b"}).Return(0, errors.New("db"))
 	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, body string) error {
-			require.Contains(s.T(), body, "**terraplane** · unlock")
+			require.Contains(s.T(), body, "unlock ·")
 			require.Contains(s.T(), body, "failed")
 			return nil
 		},
