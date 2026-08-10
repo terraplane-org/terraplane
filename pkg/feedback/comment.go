@@ -3,37 +3,44 @@ package feedback
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 )
 
-var planSummaryRE = regexp.MustCompile(`(?m)^Plan:\s+(\d+)\s+to\s+add,\s+(\d+)\s+to\s+change,\s+(\d+)\s+to\s+destroy\.?$`)
+var (
+	planSummaryRE = regexp.MustCompile(
+		`(?m)^Plan:\s+(\d+)\s+to\s+add,\s+(\d+)\s+to\s+change,\s+(\d+)\s+to\s+destroy\.?$`,
+	)
+	applySummaryRE = regexp.MustCompile(
+		`(?m)^Apply complete! Resources:\s+(\d+)\s+added,\s+(\d+)\s+changed,\s+(\d+)\s+destroyed\.?$`,
+	)
+	noChangesRE = regexp.MustCompile(`(?i)No changes\.\s+Your infrastructure matches the configuration\.`)
+)
+
+type resourceDelta struct {
+	add, change, destroy int
+}
 
 // PlanResultComment formats a plan job result as a GitHub PR comment body.
 func PlanResultComment(job *models.Job, success bool, output, errMsg string) string {
 	var b strings.Builder
+	writeHeader(&b, "plan", job.StackName, success)
+	writeMeta(&b, job)
 
-	fmt.Fprintf(&b, "`%s` plan · %s\n", job.StackName, statusEmoji(success))
-
-	if counts := extractPlanCounts(output); counts != "" {
-		fmt.Fprintf(&b, "\n%s\n", counts)
+	if delta, fromSummary := parsePlanDelta(output); fromSummary {
+		writeDelta(&b, delta)
+	} else if success && noChangesRE.MatchString(output) {
+		b.WriteString("\n> [!NOTE]\n")
+		b.WriteString("> No infrastructure changes.\n")
 	}
 
-	if errMsg = strings.TrimSpace(errMsg); errMsg != "" {
-		b.WriteString("\n")
-		writeFencedBlock(&b, errMsg)
-	}
-
-	if output = strings.TrimSpace(output); output != "" {
-		b.WriteString("\n<details>\n")
-		b.WriteString("<summary>plan</summary>\n\n")
-		writeFencedBlock(&b, output)
-		b.WriteString("</details>\n")
-	}
+	writeError(&b, errMsg)
+	writeCollapsedOutput(&b, output)
 
 	if success {
-		fmt.Fprintf(&b, "\napply with `terraplane apply -s %s`\n", job.StackName)
+		fmt.Fprintf(&b, "\nApply when ready:\n\n```\nterraplane apply -s %s\n```\n", job.StackName)
 	}
 
 	return b.String()
@@ -42,55 +49,134 @@ func PlanResultComment(job *models.Job, success bool, output, errMsg string) str
 // ApplyResultComment formats an apply job result as a GitHub PR comment body.
 func ApplyResultComment(job *models.Job, success bool, output, errMsg string) string {
 	var b strings.Builder
+	writeHeader(&b, "apply", job.StackName, success)
+	writeMeta(&b, job)
 
-	fmt.Fprintf(&b, "`%s` apply · %s\n", job.StackName, statusEmoji(success))
-
-	if errMsg = strings.TrimSpace(errMsg); errMsg != "" {
-		b.WriteString("\n")
-		writeFencedBlock(&b, errMsg)
+	if delta, ok := parseApplyDelta(output); ok {
+		writeDelta(&b, delta)
 	}
 
-	if output = strings.TrimSpace(output); output != "" {
-		b.WriteString("\n<details>\n")
-		b.WriteString("<summary>apply</summary>\n\n")
-		writeFencedBlock(&b, output)
-		b.WriteString("</details>\n")
-	}
-
+	writeError(&b, errMsg)
+	writeCollapsedOutput(&b, output)
 	return b.String()
 }
 
 // UnlockResultComment formats an unlock result as a GitHub PR comment body.
 func UnlockResultComment(stackName string, success bool, errMsg string) string {
 	var b strings.Builder
-
-	if stackName != "" {
-		fmt.Fprintf(&b, "`%s` unlock · %s\n", stackName, statusEmoji(success))
-	} else {
-		fmt.Fprintf(&b, "unlock · %s\n", statusEmoji(success))
-	}
-
-	if errMsg = strings.TrimSpace(errMsg); errMsg != "" {
-		b.WriteString("\n")
-		writeFencedBlock(&b, errMsg)
-	}
-
+	writeHeader(&b, "unlock", stackName, success)
+	writeError(&b, errMsg)
 	return b.String()
 }
 
-func statusEmoji(success bool) string {
-	if success {
-		return "✅"
+func writeHeader(b *strings.Builder, action, stack string, success bool) {
+	b.WriteString("**terraplane** · ")
+	b.WriteString(action)
+	b.WriteString("\n\n")
+	if stack != "" {
+		fmt.Fprintf(b, "### `%s` · %s\n", stack, statusLabel(success))
+	} else {
+		fmt.Fprintf(b, "### %s\n", statusLabel(success))
 	}
-	return "❌"
 }
 
-func extractPlanCounts(output string) string {
+func writeMeta(b *strings.Builder, job *models.Job) {
+	parts := make([]string, 0, 2)
+	if dir := strings.TrimSpace(job.Dir); dir != "" {
+		parts = append(parts, fmt.Sprintf("`%s`", dir))
+	}
+	if sha := shortSHA(job.CommitSHA); sha != "" {
+		parts = append(parts, fmt.Sprintf("`%s`", sha))
+	}
+	if len(parts) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n%s\n", strings.Join(parts, " · "))
+}
+
+// writeDelta renders counts in a ```diff fence so GitHub paints adds green and
+// destroys red. A caution callout appears when anything would be destroyed.
+func writeDelta(b *strings.Builder, d resourceDelta) {
+	b.WriteString("\n```diff\n")
+	fmt.Fprintf(b, "+ %d add\n", d.add)
+	fmt.Fprintf(b, "  %d change\n", d.change)
+	fmt.Fprintf(b, "- %d destroy\n", d.destroy)
+	b.WriteString("```\n")
+
+	if d.destroy > 0 {
+		b.WriteString("\n> [!CAUTION]\n")
+		fmt.Fprintf(b, "> This run destroys **%d** resource", d.destroy)
+		if d.destroy != 1 {
+			b.WriteString("s")
+		}
+		b.WriteString(".\n")
+	}
+}
+
+func writeError(b *strings.Builder, errMsg string) {
+	errMsg = strings.TrimSpace(errMsg)
+	if errMsg == "" {
+		return
+	}
+	b.WriteString("\n> [!CAUTION]\n")
+	b.WriteString("> Something went wrong:\n")
+	b.WriteString("\n")
+	writeFencedBlock(b, errMsg)
+}
+
+func writeCollapsedOutput(b *strings.Builder, output string) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return
+	}
+	b.WriteString("\n<details>\n")
+	b.WriteString("<summary>Output</summary>\n\n")
+	writeFencedBlock(b, output)
+	b.WriteString("</details>\n")
+}
+
+func statusLabel(success bool) string {
+	if success {
+		return "✅ passed"
+	}
+	return "❌ failed"
+}
+
+func shortSHA(sha string) string {
+	sha = strings.TrimSpace(sha)
+	if len(sha) >= 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
+func parsePlanDelta(output string) (resourceDelta, bool) {
 	m := planSummaryRE.FindStringSubmatch(output)
 	if m == nil {
-		return ""
+		return resourceDelta{}, false
 	}
-	return fmt.Sprintf("%s add · %s change · %s destroy", m[1], m[2], m[3])
+	return resourceDelta{
+		add:     atoi(m[1]),
+		change:  atoi(m[2]),
+		destroy: atoi(m[3]),
+	}, true
+}
+
+func parseApplyDelta(output string) (resourceDelta, bool) {
+	m := applySummaryRE.FindStringSubmatch(output)
+	if m == nil {
+		return resourceDelta{}, false
+	}
+	return resourceDelta{
+		add:     atoi(m[1]),
+		change:  atoi(m[2]),
+		destroy: atoi(m[3]),
+	}, true
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // writeFencedBlock writes a fenced code block using a fence long enough to

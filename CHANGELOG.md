@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- PR result comments: terraplane-branded layout with stack header, dir/commit meta, add/change/destroy table, and collapsed output (less Atlantis-like)
 - Valid comments will receive a reaction from Terraplane to acknowledge receipt
 - Docker CI/release builds use Buildx GitHub Actions cache; CI no longer uses `load: true`
 - Dockerfile fetches Atlas before copying sources so code changes do not re-download it
