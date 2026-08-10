@@ -48,6 +48,7 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 		"user", unlock.TriggerUser,
 		"commit", unlock.CommitSHA,
 		"stacks", unlock.Stacks,
+		"environments", unlock.Environments,
 	)
 
 	file, err := s.scmProvider.GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo)
@@ -64,7 +65,7 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 		return err
 	}
 
-	stacks, err := config.ResolveStacks(unlock.Stacks)
+	stacks, err := config.ResolveStacks(unlock.Stacks, unlock.Environments)
 	if err != nil {
 		err = fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", unlock.Repo, unlock.PRNumber, err)
 		s.publishUnlockFailure(ctx, unlock, "", err)

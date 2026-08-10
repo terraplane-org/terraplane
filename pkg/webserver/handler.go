@@ -123,6 +123,7 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"user", cmd.Plan.TriggerUser,
 			"commit", cmd.Plan.CommitSHA,
 			"stacks", cmd.Plan.Stacks,
+			"environments", cmd.Plan.Environments,
 			"plan_flags", cmd.Plan.PlanFlags,
 			"comment", cmd.Plan.RawComment,
 		)
@@ -144,6 +145,8 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"pr", cmd.Apply.PRNumber,
 			"user", cmd.Apply.TriggerUser,
 			"commit", cmd.Apply.CommitSHA,
+			"stacks", cmd.Apply.Stacks,
+			"environments", cmd.Apply.Environments,
 			"comment", cmd.Apply.RawComment,
 		)
 		apply := cmd.Apply
@@ -164,6 +167,8 @@ func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
 			"pr", cmd.Unlock.PRNumber,
 			"user", cmd.Unlock.TriggerUser,
 			"commit", cmd.Unlock.CommitSHA,
+			"stacks", cmd.Unlock.Stacks,
+			"environments", cmd.Unlock.Environments,
 			"comment", cmd.Unlock.RawComment,
 		)
 		unlock := cmd.Unlock

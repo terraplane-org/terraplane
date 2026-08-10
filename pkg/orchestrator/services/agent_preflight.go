@@ -9,7 +9,7 @@ import (
 
 // anyConnectedAgent reports whether at least one agent named by the resolved
 // stacks is currently registered. Unique agent IDs are checked once each.
-func anyConnectedAgent(ctx context.Context, registry agentsession.Registry, stacks []terraplaneconfig.Stack) (bool, error) {
+func anyConnectedAgent(ctx context.Context, registry agentsession.Registry, stacks []terraplaneconfig.ResolvedStack) (bool, error) {
 	seen := make(map[string]struct{}, len(stacks))
 	for _, stack := range stacks {
 		if _, ok := seen[stack.Agent]; ok {
@@ -28,7 +28,7 @@ func anyConnectedAgent(ctx context.Context, registry agentsession.Registry, stac
 	return false, nil
 }
 
-func uniqueAgentNames(stacks []terraplaneconfig.Stack) []string {
+func uniqueAgentNames(stacks []terraplaneconfig.ResolvedStack) []string {
 	seen := make(map[string]struct{}, len(stacks))
 	names := make([]string, 0, len(stacks))
 	for _, stack := range stacks {

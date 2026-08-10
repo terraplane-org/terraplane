@@ -50,6 +50,8 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 		"pr", apply.PRNumber,
 		"user", apply.TriggerUser,
 		"commit", apply.CommitSHA,
+		"stacks", apply.Stacks,
+		"environments", apply.Environments,
 	)
 
 	s.logger.Debug(
@@ -70,7 +72,7 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 		return fmt.Errorf("failed to parse terraplane.yaml for repository %s at commit %s: %w", apply.Repo, apply.CommitSHA, err)
 	}
 
-	stacks, err := config.ResolveStacks(apply.Stacks)
+	stacks, err := config.ResolveStacks(apply.Stacks, apply.Environments)
 	if err != nil {
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", apply.Repo, apply.PRNumber, err)
 	}

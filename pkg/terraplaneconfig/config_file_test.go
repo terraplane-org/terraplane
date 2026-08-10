@@ -7,80 +7,263 @@ import (
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
+const validYAML = `
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+        terraform_version: "1.9.0"
+      - name: b
+        agent: agent-special
+        dir: stacks/b
+  - name: production
+    agent: agent-prod
+    stacks:
+      - name: c
+        dir: stacks/c
+`
+
 func TestParseConfigFile(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		cfg, err := terraplaneconfig.ParseConfigFile([]byte(`
-stacks:
-  - name: a
-    agent: agent-dev
-    dir: terraform/a
-    terraform_version: "1.9.0"
-  - name: b
-    agent: agent-prod
-    dir: terraform/b
-`))
+		cfg, err := terraplaneconfig.ParseConfigFile([]byte(validYAML))
 		require.NoError(t, err)
-		require.Len(t, cfg.Stacks, 2)
-		require.Equal(t, "a", cfg.Stacks[0].Name)
-		require.Equal(t, "agent-dev", cfg.Stacks[0].Agent)
-		require.Equal(t, "terraform/a", cfg.Stacks[0].Dir)
-		require.Equal(t, "1.9.0", cfg.Stacks[0].TerraformVersion)
-		require.Equal(t, "b", cfg.Stacks[1].Name)
+		require.Len(t, cfg.Environments, 2)
+		require.Equal(t, "staging", cfg.Environments[0].Name)
+		require.Equal(t, "agent-dev", cfg.Environments[0].Agent)
+		require.Equal(t, "a", cfg.Environments[0].Stacks[0].Name)
+		require.Equal(t, "1.9.0", cfg.Environments[0].Stacks[0].TerraformVersion)
+		require.Equal(t, "agent-special", cfg.Environments[0].Stacks[1].Agent)
 	})
 
 	t.Run("invalid yaml", func(t *testing.T) {
-		cfg, err := terraplaneconfig.ParseConfigFile([]byte("stacks: ["))
+		cfg, err := terraplaneconfig.ParseConfigFile([]byte("environments: ["))
 		require.Error(t, err)
 		require.Nil(t, cfg)
 		require.Contains(t, err.Error(), "parse terraplane config")
 	})
 
-	t.Run("empty document", func(t *testing.T) {
+	t.Run("empty document fails validation", func(t *testing.T) {
 		cfg, err := terraplaneconfig.ParseConfigFile([]byte(""))
-		require.NoError(t, err)
-		require.NotNil(t, cfg)
-		require.Empty(t, cfg.Stacks)
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "no environments configured")
+	})
+
+	t.Run("duplicate stack names", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: shared
+        dir: a
+  - name: production
+    agent: agent-prod
+    stacks:
+      - name: shared
+        dir: b
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `stack name "shared" is not unique`)
+	})
+
+	t.Run("missing agent", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    stacks:
+      - name: a
+        dir: stacks/a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has no agent")
+	})
+
+	t.Run("missing dir", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing dir")
+	})
+
+	t.Run("duplicate environment names", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+  - name: staging
+    agent: agent-prod
+    stacks:
+      - name: b
+        dir: stacks/b
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `duplicate environment name "staging"`)
+	})
+
+	t.Run("empty environment name", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: " "
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "environment name is required")
+	})
+
+	t.Run("environment with no stacks", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks: []
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `environment "staging" has no stacks`)
+	})
+
+	t.Run("empty stack name", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: ""
+        dir: stacks/a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "stack name is required")
 	})
 }
 
 func TestResolveStacks(t *testing.T) {
-	cfg := &terraplaneconfig.ConfigFile{
-		Stacks: []terraplaneconfig.Stack{
-			{Name: "a", Agent: "dev", Dir: "a"},
-			{Name: "b", Agent: "prod", Dir: "b"},
-		},
-	}
+	cfg, err := terraplaneconfig.ParseConfigFile([]byte(validYAML))
+	require.NoError(t, err)
 
-	t.Run("no stacks configured", func(t *testing.T) {
-		empty := &terraplaneconfig.ConfigFile{}
-		got, err := empty.ResolveStacks(nil)
+	t.Run("invalid config", func(t *testing.T) {
+		got, err := (&terraplaneconfig.ConfigFile{}).ResolveStacks(nil, nil)
 		require.Error(t, err)
 		require.Nil(t, got)
-		require.Contains(t, err.Error(), "no stacks configured")
+		require.Contains(t, err.Error(), "no environments configured")
 	})
 
-	t.Run("empty names returns all", func(t *testing.T) {
-		got, err := cfg.ResolveStacks(nil)
+	t.Run("no selectors returns all", func(t *testing.T) {
+		got, err := cfg.ResolveStacks(nil, nil)
 		require.NoError(t, err)
-		require.Equal(t, cfg.Stacks, got)
-
-		got, err = cfg.ResolveStacks([]string{})
-		require.NoError(t, err)
-		require.Equal(t, cfg.Stacks, got)
+		require.Len(t, got, 3)
+		require.Equal(t, "agent-dev", got[0].Agent)
+		require.Equal(t, "staging", got[0].Environment)
+		require.Equal(t, "agent-special", got[1].Agent)
+		require.Equal(t, "agent-prod", got[2].Agent)
 	})
 
-	t.Run("known names", func(t *testing.T) {
-		got, err := cfg.ResolveStacks([]string{"b", "a"})
+	t.Run("by environment", func(t *testing.T) {
+		got, err := cfg.ResolveStacks(nil, []string{"staging"})
 		require.NoError(t, err)
 		require.Len(t, got, 2)
-		require.Equal(t, "b", got[0].Name)
+		require.Equal(t, "a", got[0].Name)
+		require.Equal(t, "b", got[1].Name)
+	})
+
+	t.Run("by stack", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"c", "a"}, nil)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		require.Equal(t, "c", got[0].Name)
 		require.Equal(t, "a", got[1].Name)
 	})
 
-	t.Run("unknown name", func(t *testing.T) {
-		got, err := cfg.ResolveStacks([]string{"a", "missing"})
+	t.Run("environment and stack intersection", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"a"}, []string{"staging"})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, "a", got[0].Name)
+	})
+
+	t.Run("stack not in environment", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"c"}, []string{"staging"})
+		require.Error(t, err)
+		require.Nil(t, got)
+		require.Contains(t, err.Error(), `stack "c" is not in environment "staging"`)
+	})
+
+	t.Run("stack not in multiple environments", func(t *testing.T) {
+		// Three envs so we can select two that exclude stack c.
+		multi, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+  - name: sandbox
+    agent: agent-dev
+    stacks:
+      - name: b
+        dir: stacks/b
+  - name: production
+    agent: agent-prod
+    stacks:
+      - name: c
+        dir: stacks/c
+`))
+		require.NoError(t, err)
+		got, err := multi.ResolveStacks([]string{"c"}, []string{"staging", "sandbox"})
+		require.Error(t, err)
+		require.Nil(t, got)
+		require.Contains(t, err.Error(), `stack "c" is not in environments "staging", "sandbox"`)
+	})
+
+	t.Run("unknown environment", func(t *testing.T) {
+		got, err := cfg.ResolveStacks(nil, []string{"nope"})
+		require.Error(t, err)
+		require.Nil(t, got)
+		require.Contains(t, err.Error(), `unknown environment "nope"`)
+	})
+
+	t.Run("unknown stack in intersection", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"missing"}, []string{"staging"})
 		require.Error(t, err)
 		require.Nil(t, got)
 		require.Contains(t, err.Error(), `unknown stack "missing"`)
+	})
+
+	t.Run("unknown stack", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"missing"}, nil)
+		require.Error(t, err)
+		require.Nil(t, got)
+		require.Contains(t, err.Error(), `unknown stack "missing"`)
+	})
+
+	t.Run("intersection across environments", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"a"}, []string{"staging", "production"})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, "a", got[0].Name)
+	})
+
+	t.Run("dedupes repeated stack selectors", func(t *testing.T) {
+		got, err := cfg.ResolveStacks([]string{"a", "a"}, nil)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+	})
+
+	t.Run("dedupes repeated environment selectors", func(t *testing.T) {
+		got, err := cfg.ResolveStacks(nil, []string{"staging", "staging"})
+		require.NoError(t, err)
+		require.Len(t, got, 2)
 	})
 }

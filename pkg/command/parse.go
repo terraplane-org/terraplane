@@ -16,11 +16,24 @@ func ParseWebhook(w *scm.Webhook) Command {
 	}
 	switch verb(w.FullCommand) {
 	case KindPlan:
-		return Command{Kind: KindPlan, Plan: PlanCommand{base: b, Stacks: stacks(w.FullCommand), PlanFlags: planFlags(w.FullCommand)}}
+		return Command{Kind: KindPlan, Plan: PlanCommand{
+			base:         b,
+			Stacks:       stacks(w.FullCommand),
+			Environments: environments(w.FullCommand),
+			PlanFlags:    planFlags(w.FullCommand),
+		}}
 	case KindApply:
-		return Command{Kind: KindApply, Apply: ApplyCommand{base: b, Stacks: stacks(w.FullCommand)}}
+		return Command{Kind: KindApply, Apply: ApplyCommand{
+			base:         b,
+			Stacks:       stacks(w.FullCommand),
+			Environments: environments(w.FullCommand),
+		}}
 	case KindUnlock:
-		return Command{Kind: KindUnlock, Unlock: UnlockCommand{base: b, Stacks: stacks(w.FullCommand)}}
+		return Command{Kind: KindUnlock, Unlock: UnlockCommand{
+			base:         b,
+			Stacks:       stacks(w.FullCommand),
+			Environments: environments(w.FullCommand),
+		}}
 	default:
 		return Command{Kind: KindUnknown}
 	}
@@ -44,29 +57,46 @@ func verb(body string) Kind {
 }
 
 func stacks(body string) []string {
+	return flagValues(body, "-s", "-stack")
+}
+
+func environments(body string) []string {
+	return flagValues(body, "-e", "-env")
+}
+
+func flagValues(body string, short, long string) []string {
 	fields := strings.Fields(firstLine(body))
 	start := 0
-	if len(fields) >= 2 && strings.EqualFold(fields[0], "terraplane") && (strings.EqualFold(fields[1], "plan") || strings.EqualFold(fields[1], "unlock") || strings.EqualFold(fields[1], "apply")) {
+	if len(fields) >= 2 && strings.EqualFold(fields[0], "terraplane") && isVerb(fields[1]) {
 		start = 2
 	}
 
 	var out []string
 	for i := start; i < len(fields); i++ {
 		switch fields[i] {
-		case "-s", "-stack":
+		case short, long:
 			i++
 			if i < len(fields) {
 				out = append(out, fields[i])
 			}
 		default:
-			if name, ok := strings.CutPrefix(fields[i], "-s="); ok {
+			if name, ok := strings.CutPrefix(fields[i], short+"="); ok {
 				out = append(out, name)
-			} else if name, ok := strings.CutPrefix(fields[i], "-stack="); ok {
+			} else if name, ok := strings.CutPrefix(fields[i], long+"="); ok {
 				out = append(out, name)
 			}
 		}
 	}
 	return out
+}
+
+func isVerb(s string) bool {
+	switch strings.ToLower(s) {
+	case "plan", "apply", "unlock":
+		return true
+	default:
+		return false
+	}
 }
 
 func planFlags(body string) string {
@@ -79,12 +109,15 @@ func planFlags(body string) string {
 	var flags []string
 	for i := start; i < len(fields); i++ {
 		switch fields[i] {
-		case "-s", "-stack":
+		case "-s", "-stack", "-e", "-env":
 			i++
 		case "--":
 			return strings.Join(fields[i+1:], " ")
 		default:
-			if strings.HasPrefix(fields[i], "-s=") || strings.HasPrefix(fields[i], "-stack=") {
+			if strings.HasPrefix(fields[i], "-s=") ||
+				strings.HasPrefix(fields[i], "-stack=") ||
+				strings.HasPrefix(fields[i], "-e=") ||
+				strings.HasPrefix(fields[i], "-env=") {
 				continue
 			}
 			flags = append(flags, fields[i])

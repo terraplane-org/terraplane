@@ -23,16 +23,19 @@ type base struct {
 
 type PlanCommand struct {
 	base
-	Stacks    []string
-	PlanFlags string
+	Stacks       []string
+	Environments []string
+	PlanFlags    string
 }
 
 type ApplyCommand struct {
 	base
-	Stacks []string
+	Stacks       []string
+	Environments []string
 }
 
 type UnlockCommand struct {
 	base
-	Stacks []string
+	Stacks       []string
+	Environments []string
 }

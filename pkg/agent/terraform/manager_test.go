@@ -47,11 +47,13 @@ func (s *ManagerSuite) mgr(defaultVer string) terraform.Manager {
 
 func (s *ManagerSuite) TestRunPlanHappyPath() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: stacks/stg
+        terraform_version: 1.5.0
 `)
 	stackDir := filepath.Join(s.ws, "stacks/stg")
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.5.0").Return("/bin/terraform", nil)
@@ -65,10 +67,12 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanUsesDefaultVersion() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
+    stacks:
+      - name: stg
+        dir: stacks/stg
 `)
 	stackDir := filepath.Join(s.ws, "stacks/stg")
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.9.0").Return("/bin/terraform", nil)
@@ -81,10 +85,12 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanMissingStack() {
 	s.writeConfig(`
-stacks:
-  - name: other
+environments:
+  - name: default
     agent: a
-    dir: stacks/other
+    stacks:
+      - name: other
+        dir: stacks/other
 `)
 	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
 	require.Error(s.T(), err)
@@ -99,10 +105,12 @@ func (s *ManagerSuite) TestRunPlanMissingConfig() {
 
 func (s *ManagerSuite) TestRunPlanNoVersionConfigured() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
+    stacks:
+      - name: stg
+        dir: stacks/stg
 `)
 	_, err := s.mgr("").RunPlan(context.Background(), s.ws, "stg", "")
 	require.Error(s.T(), err)
@@ -111,11 +119,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanEnsureFailure() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: stacks/stg
+        terraform_version: 1.5.0
 `)
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.5.0").Return("", errors.New("download failed"))
 
@@ -126,11 +136,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanInitFailure() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: stacks/stg
+        terraform_version: 1.5.0
 `)
 	stackDir := filepath.Join(s.ws, "stacks/stg")
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.5.0").Return("/bin/terraform", nil)
@@ -143,11 +155,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunApplyHappyPath() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: stacks/stg
+        terraform_version: 1.5.0
 `)
 	stackDir := filepath.Join(s.ws, "stacks/stg")
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.5.0").Return("/bin/terraform", nil)
@@ -160,11 +174,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunApplyEnsureFailure() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: stacks/stg
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: stacks/stg
+        terraform_version: 1.5.0
 `)
 	s.vm.EXPECT().Ensure(gomock.Any(), "1.5.0").Return("", errors.New("no binary"))
 
@@ -174,11 +190,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanRejectsDirEscape() {
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: ../../outside
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: ../../outside
+        terraform_version: 1.5.0
 `)
 	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
 	require.Error(s.T(), err)
@@ -187,11 +205,13 @@ stacks:
 
 func (s *ManagerSuite) TestRunPlanRejectsAbsoluteDir() {
 	s.writeConfig(fmt.Sprintf(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: %s
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: %s
+        terraform_version: 1.5.0
 `, s.T().TempDir()))
 	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
 	require.Error(s.T(), err)
@@ -203,11 +223,13 @@ func (s *ManagerSuite) TestRunPlanRejectsSymlinkEscape() {
 	link := filepath.Join(s.ws, "escape")
 	require.NoError(s.T(), os.Symlink(outside, link))
 	s.writeConfig(`
-stacks:
-  - name: stg
+environments:
+  - name: default
     agent: a
-    dir: escape
-    terraform_version: 1.5.0
+    stacks:
+      - name: stg
+        dir: escape
+        terraform_version: 1.5.0
 `)
 	_, err := s.mgr("1.0.0").RunPlan(context.Background(), s.ws, "stg", "")
 	require.Error(s.T(), err)

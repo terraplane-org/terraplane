@@ -6,23 +6,43 @@ import (
 )
 
 const twoStackYAML = `
-stacks:
-  - name: a
-    agent: agent-a
-    dir: stacks/a
-  - name: b
-    agent: agent-b
-    dir: stacks/b
+environments:
+  - name: default
+    stacks:
+      - name: a
+        agent: agent-a
+        dir: stacks/a
+      - name: b
+        agent: agent-b
+        dir: stacks/b
 `
 
 const sameAgentYAML = `
-stacks:
-  - name: a
+environments:
+  - name: default
     agent: shared
-    dir: stacks/a
-  - name: b
-    agent: shared
-    dir: stacks/b
+    stacks:
+      - name: a
+        dir: stacks/a
+      - name: b
+        dir: stacks/b
+`
+
+const twoEnvYAML = `
+environments:
+  - name: staging
+    agent: agent-a
+    stacks:
+      - name: a
+        dir: stacks/a
+      - name: b
+        agent: agent-b
+        dir: stacks/b
+  - name: production
+    agent: agent-prod
+    stacks:
+      - name: c
+        dir: stacks/c
 `
 
 func planCmd(comment string) command.PlanCommand {
