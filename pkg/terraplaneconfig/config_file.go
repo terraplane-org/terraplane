@@ -102,11 +102,11 @@ func (c *ConfigFile) allResolved() []ResolvedStack {
 				agent = strings.TrimSpace(env.Agent)
 			}
 			out = append(out, ResolvedStack{
-				Environment:      env.Name,
-				Name:             stack.Name,
+				Environment:      strings.TrimSpace(env.Name),
+				Name:             strings.TrimSpace(stack.Name),
 				Agent:            agent,
-				Dir:              stack.Dir,
-				TerraformVersion: stack.TerraformVersion,
+				Dir:              strings.TrimSpace(stack.Dir),
+				TerraformVersion: strings.TrimSpace(stack.TerraformVersion),
 			})
 		}
 	}
