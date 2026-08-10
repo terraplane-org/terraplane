@@ -2,19 +2,35 @@ package terraplaneconfig
 
 import (
 	"fmt"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
 
 type ConfigFile struct {
+	Environments []Environment `yaml:"environments"`
+}
+
+type Environment struct {
+	Name   string  `yaml:"name"`
+	Agent  string  `yaml:"agent,omitempty"`
 	Stacks []Stack `yaml:"stacks"`
 }
 
 type Stack struct {
 	Name             string `yaml:"name"`
-	Agent            string `yaml:"agent"`
+	Agent            string `yaml:"agent,omitempty"`
 	Dir              string `yaml:"dir"`
-	TerraformVersion string `yaml:"terraform_version"`
+	TerraformVersion string `yaml:"terraform_version,omitempty"`
+}
+
+// ResolvedStack is a stack with environment inheritance applied (agent, etc.).
+type ResolvedStack struct {
+	Environment      string
+	Name             string
+	Agent            string
+	Dir              string
+	TerraformVersion string
 }
 
 func ParseConfigFile(data []byte) (*ConfigFile, error) {
@@ -22,30 +38,171 @@ func ParseConfigFile(data []byte) (*ConfigFile, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse terraplane config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
-// ResolveStacks returns stacks matching names. When names is empty, all configured stacks are returned.
-func (c *ConfigFile) ResolveStacks(names []string) ([]Stack, error) {
-	if len(c.Stacks) == 0 {
-		return nil, fmt.Errorf("no stacks configured")
-	}
-	if len(names) == 0 {
-		return c.Stacks, nil
+// Validate checks structural rules: unique stack names, required fields, and
+// that every stack resolves to an agent via stack or environment config.
+func (c *ConfigFile) Validate() error {
+	if len(c.Environments) == 0 {
+		return fmt.Errorf("no environments configured")
 	}
 
-	byName := make(map[string]Stack, len(c.Stacks))
-	for _, stack := range c.Stacks {
-		byName[stack.Name] = stack
-	}
+	seenEnvs := make(map[string]struct{}, len(c.Environments))
+	seenStacks := make(map[string]string) // stack name → environment name
 
-	resolved := make([]Stack, 0, len(names))
-	for _, name := range names {
-		stack, ok := byName[name]
-		if !ok {
-			return nil, fmt.Errorf("unknown stack %q", name)
+	for _, env := range c.Environments {
+		name := strings.TrimSpace(env.Name)
+		if name == "" {
+			return fmt.Errorf("environment name is required")
 		}
+		if _, ok := seenEnvs[name]; ok {
+			return fmt.Errorf("duplicate environment name %q", name)
+		}
+		seenEnvs[name] = struct{}{}
+
+		if len(env.Stacks) == 0 {
+			return fmt.Errorf("environment %q has no stacks", name)
+		}
+
+		for _, stack := range env.Stacks {
+			stackName := strings.TrimSpace(stack.Name)
+			if stackName == "" {
+				return fmt.Errorf("stack name is required in environment %q", name)
+			}
+			if strings.TrimSpace(stack.Dir) == "" {
+				return fmt.Errorf("stack %q in environment %q is missing dir", stackName, name)
+			}
+			if prevEnv, ok := seenStacks[stackName]; ok {
+				return fmt.Errorf("stack name %q is not unique (found in environments %q and %q)", stackName, prevEnv, name)
+			}
+			seenStacks[stackName] = name
+
+			agent := strings.TrimSpace(stack.Agent)
+			if agent == "" {
+				agent = strings.TrimSpace(env.Agent)
+			}
+			if agent == "" {
+				return fmt.Errorf("stack %q in environment %q has no agent (set agent on the stack or environment)", stackName, name)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *ConfigFile) allResolved() []ResolvedStack {
+	out := make([]ResolvedStack, 0)
+	for _, env := range c.Environments {
+		for _, stack := range env.Stacks {
+			agent := strings.TrimSpace(stack.Agent)
+			if agent == "" {
+				agent = strings.TrimSpace(env.Agent)
+			}
+			out = append(out, ResolvedStack{
+				Environment:      env.Name,
+				Name:             stack.Name,
+				Agent:            agent,
+				Dir:              stack.Dir,
+				TerraformVersion: stack.TerraformVersion,
+			})
+		}
+	}
+	return out
+}
+
+// ResolveStacks returns stacks for the given stack and/or environment selectors.
+//
+//   - neither set → all stacks
+//   - only environments → all stacks in those environments
+//   - only stacks → those stacks
+//   - both → named stacks that belong to one of the named environments
+func (c *ConfigFile) ResolveStacks(stackNames, environmentNames []string) ([]ResolvedStack, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+
+	all := c.allResolved()
+	byName := make(map[string]ResolvedStack, len(all))
+	byEnv := make(map[string][]ResolvedStack, len(c.Environments))
+	for _, stack := range all {
+		byName[stack.Name] = stack
+		byEnv[stack.Environment] = append(byEnv[stack.Environment], stack)
+	}
+
+	if len(stackNames) == 0 && len(environmentNames) == 0 {
+		return all, nil
+	}
+
+	if len(environmentNames) > 0 {
+		for _, envName := range environmentNames {
+			if _, ok := byEnv[envName]; !ok {
+				return nil, fmt.Errorf("unknown environment %q", envName)
+			}
+		}
+	}
+
+	var resolved []ResolvedStack
+	seen := make(map[string]struct{})
+
+	add := func(stack ResolvedStack) {
+		if _, ok := seen[stack.Name]; ok {
+			return
+		}
+		seen[stack.Name] = struct{}{}
 		resolved = append(resolved, stack)
 	}
+
+	switch {
+	case len(environmentNames) > 0 && len(stackNames) == 0:
+		for _, envName := range environmentNames {
+			for _, stack := range byEnv[envName] {
+				add(stack)
+			}
+		}
+	case len(environmentNames) == 0 && len(stackNames) > 0:
+		for _, name := range stackNames {
+			stack, ok := byName[name]
+			if !ok {
+				return nil, fmt.Errorf("unknown stack %q", name)
+			}
+			add(stack)
+		}
+	default:
+		allowed := make(map[string]struct{})
+		for _, envName := range environmentNames {
+			for _, stack := range byEnv[envName] {
+				allowed[stack.Name] = struct{}{}
+			}
+		}
+		for _, name := range stackNames {
+			stack, ok := byName[name]
+			if !ok {
+				return nil, fmt.Errorf("unknown stack %q", name)
+			}
+			if _, ok := allowed[name]; !ok {
+				return nil, fmt.Errorf("stack %q is not in environment%s %s", name, plural(len(environmentNames)), quoteList(environmentNames))
+			}
+			add(stack)
+		}
+	}
+
 	return resolved, nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func quoteList(values []string) string {
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = fmt.Sprintf("%q", v)
+	}
+	return strings.Join(parts, ", ")
 }

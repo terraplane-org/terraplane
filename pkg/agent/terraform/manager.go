@@ -87,16 +87,11 @@ func (m *manager) resolveStack(workspaceDir, stackName string) (terraformDir, ve
 		return "", "", fmt.Errorf("failed to parse terraplane config: %w", err)
 	}
 
-	var stack *terraplaneconfig.Stack
-	for i := range terraplaneConfig.Stacks {
-		if terraplaneConfig.Stacks[i].Name == stackName {
-			stack = &terraplaneConfig.Stacks[i]
-			break
-		}
+	stacks, err := terraplaneConfig.ResolveStacks([]string{stackName}, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("stack %q not found in terraplane config: %w", stackName, err)
 	}
-	if stack == nil {
-		return "", "", fmt.Errorf("stack %q not found in terraplane config", stackName)
-	}
+	stack := stacks[0]
 
 	version = stack.TerraformVersion
 	if version == "" {

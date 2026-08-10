@@ -230,3 +230,19 @@ func (s *PlanServiceSuite) TestPlanFlagsForwardedToAgent() {
 	err := s.svc.RunPlan(context.Background(), plan)
 	require.NoError(s.T(), err)
 }
+
+func (s *PlanServiceSuite) TestEnvironmentFlagDispatchesAllStacksInEnv() {
+	plan := planCmd("terraplane plan -e staging")
+	sessionA := mock_agentsession.NewMockSession(s.ctrl)
+	sessionB := mock_agentsession.NewMockSession(s.ctrl)
+
+	s.scm.EXPECT().GetFile("terraplane.yaml", plan.CommitSHA, plan.Repo).Return(twoEnvYAML, nil)
+	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(sessionA, nil).Times(2) // preflight + dispatch
+	s.registry.EXPECT().Get(gomock.Any(), "agent-b").Return(sessionB, nil)           // dispatch only
+	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	sessionA.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)
+	sessionB.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)
+
+	err := s.svc.RunPlan(context.Background(), plan)
+	require.NoError(s.T(), err)
+}

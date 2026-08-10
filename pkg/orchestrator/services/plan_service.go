@@ -48,6 +48,7 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 		"user", plan.TriggerUser,
 		"commit", plan.CommitSHA,
 		"stacks", plan.Stacks,
+		"environments", plan.Environments,
 	)
 
 	s.logger.Debug(
@@ -67,7 +68,7 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 		return fmt.Errorf("failed to parse terraplane.yaml for repository %s at commit %s: %w", plan.Repo, plan.CommitSHA, err)
 	}
 
-	stacks, err := config.ResolveStacks(plan.Stacks)
+	stacks, err := config.ResolveStacks(plan.Stacks, plan.Environments)
 	if err != nil {
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", plan.Repo, plan.PRNumber, err)
 	}

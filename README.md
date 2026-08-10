@@ -25,7 +25,7 @@ Terraform belongs in the pull request, and the runner belongs inside your networ
 - an **orchestrator** — webhooks, jobs, locks, PR feedback
 - **agents** — dial out over WebSocket and run Terraform where credentials and network access already live
 
-Stacks in `terraplane.yaml` route work to the right agent. Details: [Why Terraplane](https://terraplane.io/docs/why), [How it works](https://terraplane.io/docs/how-it-works).
+Stacks live under environments in `terraplane.yaml` and route work to the right agent (`agent` on the environment, optional per-stack override). Details: [Why Terraplane](https://terraplane.io/docs/why), [How it works](https://terraplane.io/docs/how-it-works).
 
 ## Get started
 
