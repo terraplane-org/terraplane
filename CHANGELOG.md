@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** agents poll the orchestrator over HTTP (`POST /api/v1/agents/{id}/jobs/claim` + result) instead of WebSockets, enabling multi-replica orchestrators; set `AGENT_ORCHESTRATOR_URL` to an HTTP(S) base URL
+- Webhooks enqueue pending jobs in the database (with per-`(repo, stack, action)` supersede); agents claim work FIFO with per-`(repo, stack)` exclusivity and lease expiry
 
 ## [0.1.4] - 2026-08-10
 

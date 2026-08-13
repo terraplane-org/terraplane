@@ -12,7 +12,6 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
-	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
@@ -31,15 +30,16 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		storage.NewLockRepository,
 		services.NewPlanService,
 		services.NewApplyService,
+		services.NewUnlockService,
+		services.NewJobClaimServiceFromConfig,
+		services.NewJobResultService,
+		services.NewLeaseReaperFromConfig,
 		github.NewClient,
 		github.NewProvider,
-		agentsession.NewRegistry,
-		agentsession.NewFactory,
-		services.NewUnlockService,
+		github.NewPublisher,
 		webserver.NewHandler,
 		webserver.NewServer,
 		orchestrator.NewManager,
-		github.NewPublisher,
 		wire.Bind(new(orchestrator.SchemaChecker), new(*storage.DB)),
 	)
 	return nil, nil

@@ -23,7 +23,7 @@ This repository is so WIP it hurts. Nothing in here is designed for public consu
 Terraform belongs in the pull request, and the runner belongs inside your network. Terraplane keeps an Atlantis-style comment workflow (`plan` / `apply` / `unlock`) but splits into:
 
 - an **orchestrator** — webhooks, jobs, locks, PR feedback
-- **agents** — dial out over WebSocket and run Terraform where credentials and network access already live
+- **agents** — poll the orchestrator over HTTP and run Terraform where credentials and network access already live
 
 Stacks live under environments in `terraplane.yaml` and route work to the right agent (`agent` on the environment, optional per-stack override). Details: [Why Terraplane](https://terraplane.io/docs/why), [How it works](https://terraplane.io/docs/how-it-works).
 

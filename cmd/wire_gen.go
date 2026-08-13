@@ -13,7 +13,6 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
-	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
@@ -32,20 +31,21 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	client := github.NewClient(configConfig)
 	provider := github.NewProvider(logger, configConfig, client)
 	publisher := github.NewPublisher(logger, client)
-	registry := agentsession.NewRegistry(logger)
 	db, err := storage.New(configConfig)
 	if err != nil {
 		return nil, err
 	}
 	jobRepository := storage.NewJobRepository(db)
+	planService := services.NewPlanService(logger, provider, jobRepository)
 	lockRepository := storage.NewLockRepository(db)
-	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher, configConfig)
-	planService := services.NewPlanService(logger, registry, provider, jobRepository)
-	applyService := services.NewApplyService(logger, registry, provider, jobRepository, lockRepository)
+	applyService := services.NewApplyService(logger, provider, jobRepository, lockRepository)
 	unlockService := services.NewUnlockService(logger, provider, publisher, jobRepository, lockRepository)
-	handler := webserver.NewHandler(logger, provider, publisher, registry, factory, planService, applyService, unlockService, configConfig)
+	jobClaimService := services.NewJobClaimServiceFromConfig(logger, jobRepository, configConfig)
+	jobResultService := services.NewJobResultService(logger, jobRepository, lockRepository, publisher)
+	handler := webserver.NewHandler(logger, provider, publisher, planService, applyService, unlockService, jobClaimService, jobResultService, configConfig)
 	server := webserver.NewServer(configConfig, logger, handler)
-	manager := orchestrator.NewManager(configConfig, logger, server, db)
+	leaseReaper := services.NewLeaseReaperFromConfig(logger, jobResultService, configConfig)
+	manager := orchestrator.NewManager(configConfig, logger, server, db, leaseReaper)
 	return manager, nil
 }
 

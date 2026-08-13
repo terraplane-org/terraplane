@@ -16,11 +16,11 @@ type Config struct {
 	OrchestratorListenPort            int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
 	OrchestratorGithubWebhookSecret   string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
 	OrchestratorGithubAccessToken     string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
-	OrchestratorAgentPingInterval     time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PING_INTERVAL"`
-	OrchestratorAgentPongTimeout      time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PONG_TIMEOUT"`
-	OrchestratorAgentMissedHeartbeats int           `mapstructure:"ORCHESTRATOR_AGENT_MISSED_HEARTBEATS"`
+	OrchestratorJobLeaseDuration      time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE_DURATION"`
+	OrchestratorLeaseReaperInterval   time.Duration `mapstructure:"ORCHESTRATOR_LEASE_REAPER_INTERVAL"`
 	AgentClientShutdownTimer          time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL              string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
+	AgentClaimWait                    time.Duration `mapstructure:"AGENT_CLAIM_WAIT"`
 	AgentID                           string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath                string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 	AgentWorkDir                      string        `mapstructure:"AGENT_WORK_DIR"`
@@ -66,11 +66,11 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_LISTEN_PORT", 8080)
 	viper.SetDefault("ORCHESTRATOR_GITHUB_WEBHOOK_SECRET", "")
 	viper.SetDefault("ORCHESTRATOR_GITHUB_ACCESS_TOKEN", "")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PING_INTERVAL", "30s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PONG_TIMEOUT", "3s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_MISSED_HEARTBEATS", 2)
+	viper.SetDefault("ORCHESTRATOR_JOB_LEASE_DURATION", "1h")
+	viper.SetDefault("ORCHESTRATOR_LEASE_REAPER_INTERVAL", "1m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
-	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
+	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://orchestrator:8080")
+	viper.SetDefault("AGENT_CLAIM_WAIT", "30s")
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 	viper.SetDefault("AGENT_WORK_DIR", "")

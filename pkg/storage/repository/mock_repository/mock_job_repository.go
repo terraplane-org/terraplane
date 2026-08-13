@@ -12,6 +12,7 @@ package mock_repository
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/xyzjace/terraplane/pkg/storage/models"
 	gomock "go.uber.org/mock/gomock"
@@ -39,6 +40,21 @@ func NewMockJobRepository(ctrl *gomock.Controller) *MockJobRepository {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockJobRepository) EXPECT() *MockJobRepositoryMockRecorder {
 	return m.recorder
+}
+
+// ClaimNext mocks base method.
+func (m *MockJobRepository) ClaimNext(ctx context.Context, agentID string, lease time.Duration) (*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimNext", ctx, agentID, lease)
+	ret0, _ := ret[0].(*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimNext indicates an expected call of ClaimNext.
+func (mr *MockJobRepositoryMockRecorder) ClaimNext(ctx, agentID, lease any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimNext", reflect.TypeOf((*MockJobRepository)(nil).ClaimNext), ctx, agentID, lease)
 }
 
 // Create mocks base method.
@@ -84,6 +100,21 @@ func (mr *MockJobRepositoryMockRecorder) DeleteByRepoPRAndStacks(ctx, repo, prNu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByRepoPRAndStacks", reflect.TypeOf((*MockJobRepository)(nil).DeleteByRepoPRAndStacks), ctx, repo, prNumber, stackNames)
 }
 
+// FailExpiredLeases mocks base method.
+func (m *MockJobRepository) FailExpiredLeases(ctx context.Context, now time.Time) ([]models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailExpiredLeases", ctx, now)
+	ret0, _ := ret[0].([]models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FailExpiredLeases indicates an expected call of FailExpiredLeases.
+func (mr *MockJobRepositoryMockRecorder) FailExpiredLeases(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailExpiredLeases", reflect.TypeOf((*MockJobRepository)(nil).FailExpiredLeases), ctx, now)
+}
+
 // Get mocks base method.
 func (m *MockJobRepository) Get(ctx context.Context, jobID string) (*models.Job, error) {
 	m.ctrl.T.Helper()
@@ -99,6 +130,21 @@ func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
 }
 
+// GetPending mocks base method.
+func (m *MockJobRepository) GetPending(ctx context.Context, repo, stackName string, action models.JobAction) (*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPending", ctx, repo, stackName, action)
+	ret0, _ := ret[0].(*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPending indicates an expected call of GetPending.
+func (mr *MockJobRepositoryMockRecorder) GetPending(ctx, repo, stackName, action any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPending", reflect.TypeOf((*MockJobRepository)(nil).GetPending), ctx, repo, stackName, action)
+}
+
 // Update mocks base method.
 func (m *MockJobRepository) Update(ctx context.Context, job *models.Job) error {
 	m.ctrl.T.Helper()
@@ -111,4 +157,19 @@ func (m *MockJobRepository) Update(ctx context.Context, job *models.Job) error {
 func (mr *MockJobRepositoryMockRecorder) Update(ctx, job any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockJobRepository)(nil).Update), ctx, job)
+}
+
+// UpsertPending mocks base method.
+func (m *MockJobRepository) UpsertPending(ctx context.Context, job *models.Job) (*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPending", ctx, job)
+	ret0, _ := ret[0].(*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertPending indicates an expected call of UpsertPending.
+func (mr *MockJobRepositoryMockRecorder) UpsertPending(ctx, job any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPending", reflect.TypeOf((*MockJobRepository)(nil).UpsertPending), ctx, job)
 }

@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xyzjace/terraplane/pkg/agentsession"
+	"github.com/google/uuid"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
-	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
@@ -20,26 +19,23 @@ type ApplyService interface {
 }
 
 type applyService struct {
-	logger        log.Logger
-	agentRegistry agentsession.Registry
-	scmProvider   scm.Provider
-	jobs          repository.JobRepository
-	locks         repository.LockRepository
+	logger      log.Logger
+	scmProvider scm.Provider
+	jobs        repository.JobRepository
+	locks       repository.LockRepository
 }
 
 func NewApplyService(
 	logger log.Logger,
-	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
 	jobs repository.JobRepository,
 	locks repository.LockRepository,
 ) ApplyService {
 	return &applyService{
-		logger:        logger,
-		agentRegistry: agentRegistry,
-		scmProvider:   scmProvider,
-		jobs:          jobs,
-		locks:         locks,
+		logger:      logger,
+		scmProvider: scmProvider,
+		jobs:        jobs,
+		locks:       locks,
 	}
 }
 
@@ -54,14 +50,6 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 		"environments", apply.Environments,
 	)
 
-	s.logger.Debug(
-		"Fetching repository terraplane config from SCM",
-		"repo", apply.Repo,
-		"commit", apply.CommitSHA,
-		"file", "terraplane.yaml",
-	)
-
-	// TODO: Should we cache this somewhere? DB? FS?
 	file, err := s.scmProvider.GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to fetch terraplane.yaml for repository %s at commit %s: %w", apply.Repo, apply.CommitSHA, err)
@@ -84,92 +72,62 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 		"stack_count", len(stacks),
 	)
 
-	connected, err := anyConnectedAgent(ctx, s.agentRegistry, stacks)
-	if err != nil {
-		return fmt.Errorf("failed to look up agent sessions for repository %s: %w", apply.Repo, err)
-	}
-	if !connected {
-		s.logger.Warn(
-			"Apply finished without dispatching any stacks because none of the agents required by terraplane.yaml are connected",
-			"repo", apply.Repo,
-			"pr", apply.PRNumber,
-			"stack_count", len(stacks),
-			"required_agents", uniqueAgentNames(stacks),
-		)
-		return nil
-	}
-
-	var dispatched, skippedLocked, skippedNoAgent int
+	var enqueued, skippedLocked int
 	for _, stack := range stacks {
-		s.logger.Debug(
-			"Looking up agent session for stack",
-			"repo", apply.Repo,
-			"pr", apply.PRNumber,
-			"stack", stack.Name,
-			"agent", stack.Agent,
-			"dir", stack.Dir,
-		)
-
-		agent, err := s.agentRegistry.Get(ctx, stack.Agent)
+		pending, err := s.jobs.GetPending(ctx, apply.Repo, stack.Name, models.JobActionApply)
 		if err != nil {
-			return fmt.Errorf("failed to look up agent session %q for stack %q in repository %s: %w", stack.Agent, stack.Name, apply.Repo, err)
+			return fmt.Errorf("failed to look up pending apply for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
 		}
-		if agent == nil {
-			s.logger.Warn(
-				"Skipping stack because the configured agent is not connected",
-				"repo", apply.Repo,
-				"pr", apply.PRNumber,
-				"stack", stack.Name,
-				"agent", stack.Agent,
-			)
-			skippedNoAgent++
-			continue
-		}
-
-		jobID := newJobID()
-
-		if err := s.locks.Create(ctx, &models.ProjectLock{
-			Repo:      apply.Repo,
-			StackName: stack.Name,
-			Workspace: "default",
-			Dir:       stack.Dir,
-			CommitSHA: apply.CommitSHA,
-			LockedBy:  apply.TriggerUser,
-			PRNumber:  int32(apply.PRNumber),
-		}); err != nil {
-			if errors.Is(err, repository.ErrLockExists) {
-				existing, getErr := s.locks.Get(ctx, apply.Repo, stack.Name, "default")
-				if getErr != nil {
-					return fmt.Errorf("failed to fetch lock for stack %q in repository %s: %w", stack.Name, apply.Repo, getErr)
+		if pending == nil {
+			if err := s.locks.Create(ctx, &models.ProjectLock{
+				Repo:      apply.Repo,
+				StackName: stack.Name,
+				Workspace: "default",
+				Dir:       stack.Dir,
+				CommitSHA: apply.CommitSHA,
+				LockedBy:  apply.TriggerUser,
+				PRNumber:  int32(apply.PRNumber),
+			}); err != nil {
+				if errors.Is(err, repository.ErrLockExists) {
+					existing, getErr := s.locks.Get(ctx, apply.Repo, stack.Name, "default")
+					if getErr != nil {
+						return fmt.Errorf("failed to fetch lock for stack %q in repository %s: %w", stack.Name, apply.Repo, getErr)
+					}
+					s.logLockedStack(apply, stack.Name, existing)
+					skippedLocked++
+					continue
 				}
-				s.logLockedStack(apply, stack.Name, existing)
-				skippedLocked++
-				continue
+				return fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
 			}
-			return fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
 		}
 
-		if err := s.jobs.Create(ctx, &models.Job{
-			ID:        jobID,
-			Repo:      apply.Repo,
-			PRNumber:  int32(apply.PRNumber),
-			StackName: stack.Name,
-			Dir:       stack.Dir,
-			CommitSHA: apply.CommitSHA,
-			Status:    models.JobStatusPending,
-		}); err != nil {
-			if delErr := s.locks.Delete(ctx, apply.Repo, stack.Name, "default"); delErr != nil {
-				return fmt.Errorf(
-					"failed to create job for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
-					stack.Name, apply.Repo, apply.PRNumber, err, delErr,
-				)
+		job, err := s.jobs.UpsertPending(ctx, &models.Job{
+			ID:          uuid.NewString(),
+			Repo:        apply.Repo,
+			PRNumber:    int32(apply.PRNumber),
+			StackName:   stack.Name,
+			Dir:         stack.Dir,
+			CommitSHA:   apply.CommitSHA,
+			AgentID:     stack.Agent,
+			Action:      models.JobActionApply,
+			TriggerUser: apply.TriggerUser,
+			Status:      models.JobStatusPending,
+		})
+		if err != nil {
+			if pending == nil {
+				if delErr := s.locks.Delete(ctx, apply.Repo, stack.Name, "default"); delErr != nil {
+					return fmt.Errorf(
+						"failed to enqueue apply job for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
+						stack.Name, apply.Repo, apply.PRNumber, err, delErr,
+					)
+				}
 			}
-			return fmt.Errorf("failed to create job for stack %q in repository %s pull request #%d: %w", stack.Name, apply.Repo, apply.PRNumber, err)
+			return fmt.Errorf("failed to enqueue apply job for stack %q in repository %s pull request #%d: %w", stack.Name, apply.Repo, apply.PRNumber, err)
 		}
 
 		s.logger.Info(
-			"Dispatching apply command to agent",
-			"job_id", jobID,
+			"Enqueued apply job",
+			"job_id", job.ID,
 			"repo", apply.Repo,
 			"pr", apply.PRNumber,
 			"stack", stack.Name,
@@ -177,62 +135,20 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 			"dir", stack.Dir,
 			"commit", apply.CommitSHA,
 		)
-
-		if err := agent.Write(ctx, &terraplanev1.TerraformEnvelope{
-			JobId: jobID,
-			Payload: &terraplanev1.TerraformEnvelope_Apply{
-				Apply: &terraplanev1.ApplyCommand{
-					Repo:       apply.Repo,
-					PrNumber:   int32(apply.PRNumber),
-					CommitHash: apply.CommitSHA,
-					StackName:  stack.Name,
-					Dir:        stack.Dir,
-				},
-			},
-		}); err != nil {
-			if delErr := s.locks.Delete(ctx, apply.Repo, stack.Name, "default"); delErr != nil {
-				return fmt.Errorf(
-					"failed to dispatch apply command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
-					stack.Agent, stack.Name, apply.Repo, apply.PRNumber, err, delErr,
-				)
-			}
-			if delErr := s.jobs.Delete(ctx, jobID); delErr != nil {
-				return fmt.Errorf(
-					"failed to dispatch apply command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to delete job: %v)",
-					stack.Agent, stack.Name, apply.Repo, apply.PRNumber, err, delErr,
-				)
-			}
-			return fmt.Errorf("failed to dispatch apply command to agent %q for stack %q in repository %s pull request #%d: %w", stack.Agent, stack.Name, apply.Repo, apply.PRNumber, err)
-		}
-
-		dispatched++
-	}
-
-	if dispatched == 0 {
-		s.logger.Warn(
-			"Apply finished without dispatching any stacks",
-			"repo", apply.Repo,
-			"pr", apply.PRNumber,
-			"stack_count", len(stacks),
-			"skipped_locked", skippedLocked,
-			"skipped_no_agent", skippedNoAgent,
-		)
-		return nil
+		enqueued++
 	}
 
 	s.logger.Info(
-		"Finished terraplane apply dispatch",
+		"Finished terraplane apply enqueue",
 		"repo", apply.Repo,
 		"pr", apply.PRNumber,
-		"dispatched_stack_count", dispatched,
-		"resolved_stack_count", len(stacks),
+		"enqueued_stack_count", enqueued,
+		"skipped_locked", skippedLocked,
 	)
-
 	return nil
 }
 
 func (s *applyService) logLockedStack(apply command.ApplyCommand, stackName string, lock *models.ProjectLock) {
-	// TODO: This should output to the SCM PR
 	lockedPR := int32(0)
 	lockedBy := ""
 	if lock != nil {

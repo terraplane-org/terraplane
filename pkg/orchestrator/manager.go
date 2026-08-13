@@ -9,6 +9,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/webserver"
 	"golang.org/x/sync/errgroup"
 )
@@ -28,6 +29,7 @@ type manager struct {
 	server              webserver.Server
 	schema              SchemaChecker
 	sharedAuthToken     string
+	leaseReaper         *services.LeaseReaper
 }
 
 func (o *manager) Start(ctx context.Context) error {
@@ -53,6 +55,10 @@ func (o *manager) Start(ctx context.Context) error {
 	})
 
 	group.Go(func() error {
+		return o.leaseReaper.Run(ctx)
+	})
+
+	group.Go(func() error {
 		<-ctx.Done()
 
 		shutdownCtx, cancel := context.WithTimeout(
@@ -72,12 +78,19 @@ func (o *manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func NewManager(config *config.Config, logger log.Logger, server webserver.Server, schema SchemaChecker) Manager {
+func NewManager(
+	cfg *config.Config,
+	logger log.Logger,
+	server webserver.Server,
+	schema SchemaChecker,
+	leaseReaper *services.LeaseReaper,
+) Manager {
 	return &manager{
-		serverShutdownTimer: config.ServerShutdownTimer,
+		serverShutdownTimer: cfg.ServerShutdownTimer,
 		logger:              logger,
 		server:              server,
 		schema:              schema,
-		sharedAuthToken:     config.SharedAuthToken,
+		sharedAuthToken:     cfg.SharedAuthToken,
+		leaseReaper:         leaseReaper,
 	}
 }

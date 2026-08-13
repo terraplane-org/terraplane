@@ -11,6 +11,7 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 )
 
 type stubSchema struct {
@@ -44,12 +45,22 @@ func (s *stubServer) Shutdown(context.Context) error {
 	return s.shutdownErr
 }
 
+type stubResults struct{}
+
+func (stubResults) Complete(context.Context, string, string, bool, string, string) error { return nil }
+func (stubResults) FailExpired(context.Context) error                                   { return nil }
+
+func testReaper() *services.LeaseReaper {
+	return services.NewLeaseReaper(log.Noop(), stubResults{}, time.Hour)
+}
+
 func TestStartMissingAuthToken(t *testing.T) {
 	m := orchestrator.NewManager(
 		&config.Config{SharedAuthToken: "", ServerShutdownTimer: time.Second},
 		log.Noop(),
 		&stubServer{},
 		stubSchema{},
+		testReaper(),
 	)
 	err := m.Start(context.Background())
 	require.Error(t, err)
@@ -62,6 +73,7 @@ func TestStartSchemaCheckFailure(t *testing.T) {
 		log.Noop(),
 		&stubServer{},
 		stubSchema{err: errors.New("migrations pending")},
+		testReaper(),
 	)
 	err := m.Start(context.Background())
 	require.Error(t, err)
@@ -78,6 +90,7 @@ func TestStartAndShutdownOnCancel(t *testing.T) {
 		log.Noop(),
 		srv,
 		stubSchema{},
+		testReaper(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,6 +124,7 @@ func TestStartPropagatesServerError(t *testing.T) {
 		log.Noop(),
 		&stubServer{startErr: errors.New("bind failed")},
 		stubSchema{},
+		testReaper(),
 	)
 
 	err := m.Start(context.Background())
