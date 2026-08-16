@@ -63,6 +63,18 @@ func (s *stubUnlock) RunUnlock(_ context.Context, unlock command.UnlockCommand) 
 	return s.err
 }
 
+type stubJobs struct {
+	err    error
+	called chan *scm.Webhook
+}
+
+func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
+	if s.called != nil {
+		s.called <- webhook
+	}
+	return s.err
+}
+
 type stubFactory struct {
 	session agentsession.Session
 }
@@ -93,6 +105,7 @@ type HandlerSuite struct {
 	plan      *stubPlan
 	apply     *stubApply
 	unlock    *stubUnlock
+	jobs      *stubJobs
 	handler   http.Handler
 }
 
@@ -108,15 +121,21 @@ func (s *HandlerSuite) SetupTest() {
 	s.plan = &stubPlan{called: make(chan command.PlanCommand, 1)}
 	s.apply = &stubApply{called: make(chan command.ApplyCommand, 1)}
 	s.unlock = &stubUnlock{called: make(chan command.UnlockCommand, 1)}
-	s.handler = webserver.NewHandler(
+	s.jobs = &stubJobs{called: make(chan *scm.Webhook, 8)}
+	s.handler = s.newHandler(s.registry, stubFactory{session: &stubSession{id: "agent-1"}})
+}
+
+func (s *HandlerSuite) newHandler(registry agentsession.Registry, factory agentsession.Factory) http.Handler {
+	return webserver.NewHandler(
 		log.Noop(),
 		s.scm,
 		s.publisher,
-		s.registry,
-		stubFactory{session: &stubSession{id: "agent-1"}},
+		registry,
+		factory,
 		s.plan,
 		s.apply,
 		s.unlock,
+		s.jobs,
 		&config.Config{SharedAuthToken: "secret"},
 	)
 }
@@ -159,6 +178,7 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 		TriggeringUser: "jace",
 		CommitSHA:      "abc",
 	}}, nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 0).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
 	rec := httptest.NewRecorder()
@@ -166,6 +186,13 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 	require.Contains(s.T(), rec.Body.String(), "Webhook parsed successfully")
+
+	select {
+	case got := <-s.jobs.called:
+		require.Equal(s.T(), "not a terraplane command", got.FullCommand)
+	case <-time.After(2 * time.Second):
+		s.T().Fatal("timed out waiting for CreatePendingJobs")
+	}
 	select {
 	case <-s.plan.called:
 		s.T().Fatal("plan should not run for unknown commands")
@@ -173,7 +200,7 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 	}
 }
 
-func (s *HandlerSuite) TestWebhookDispatchesPlanApplyUnlock() {
+func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
 		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 11},
 		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 12},
@@ -188,52 +215,38 @@ func (s *HandlerSuite) TestWebhookDispatchesPlanApplyUnlock() {
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 
-	select {
-	case plan := <-s.plan.called:
-		require.Equal(s.T(), []string{"a"}, plan.Stacks)
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for plan")
-	}
-	select {
-	case apply := <-s.apply.called:
-		require.Equal(s.T(), []string{"a"}, apply.Stacks)
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for apply")
-	}
-	select {
-	case unlock := <-s.unlock.called:
-		require.Equal(s.T(), []string{"a"}, unlock.Stacks)
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for unlock")
+	for _, want := range []string{"terraplane plan -s a", "terraplane apply -s a", "terraplane unlock -s a"} {
+		select {
+		case got := <-s.jobs.called:
+			require.Equal(s.T(), want, got.FullCommand)
+		case <-time.After(2 * time.Second):
+			s.T().Fatalf("timed out waiting for CreatePendingJobs (%s)", want)
+		}
 	}
 }
 
 func (s *HandlerSuite) TestWebhookServiceErrorsAreLoggedNotReturned() {
-	// Intention: webhook ACK stays 200 even when async service work fails.
-	s.plan.err = errors.New("plan failed")
-	s.apply.err = errors.New("apply failed")
-	s.unlock.err = errors.New("unlock failed")
+	// Intention: webhook ACK stays 200 even when enqueue fails.
+	s.jobs.err = errors.New("upsert failed")
 
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
 		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 21},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane apply", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 22},
-		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane unlock", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 23},
 	}, nil)
 	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 21).Return(nil)
-	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 22).Return(nil)
-	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 23).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 
-	<-s.plan.called
-	<-s.apply.called
-	<-s.unlock.called
+	select {
+	case <-s.jobs.called:
+	case <-time.After(2 * time.Second):
+		s.T().Fatal("timed out waiting for CreatePendingJobs")
+	}
 }
 
-func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillDispatches() {
+func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillEnqueues() {
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{{
 		RepositorySlug: "acme/infra",
 		PRNumber:       1,
@@ -250,10 +263,10 @@ func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillDispatches() {
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 
 	select {
-	case plan := <-s.plan.called:
-		require.Equal(s.T(), []string{"a"}, plan.Stacks)
+	case got := <-s.jobs.called:
+		require.Equal(s.T(), "terraplane plan -s a", got.FullCommand)
 	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for plan")
+		s.T().Fatal("timed out waiting for CreatePendingJobs")
 	}
 }
 
@@ -275,11 +288,7 @@ func (s *HandlerSuite) TestWebsocketAcceptFailure() {
 func (s *HandlerSuite) TestWebsocketHappyPath() {
 	runCh := make(chan struct{})
 	sess := &stubSession{id: "agent-42", runCh: runCh}
-	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, s.publisher, s.registry, stubFactory{session: sess},
-		s.plan, s.apply, s.unlock,
-		&config.Config{SharedAuthToken: "secret"},
-	)
+	s.handler = s.newHandler(s.registry, stubFactory{session: sess})
 
 	srv := httptest.NewServer(s.handler)
 	s.T().Cleanup(srv.Close)
@@ -368,11 +377,7 @@ func (s *HandlerSuite) TestWebsocketRegisterFailure() {
 	reg := mock_agentsession.NewMockRegistry(s.ctrl)
 	reg.EXPECT().Register(gomock.Any(), gomock.Any()).Return(errors.New("registry full"))
 
-	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, s.publisher, reg, stubFactory{session: &stubSession{id: "agent-1"}},
-		s.plan, s.apply, s.unlock,
-		&config.Config{SharedAuthToken: "secret"},
-	)
+	s.handler = s.newHandler(reg, stubFactory{session: &stubSession{id: "agent-1"}})
 
 	srv := httptest.NewServer(s.handler)
 	s.T().Cleanup(srv.Close)
@@ -397,11 +402,7 @@ func (s *HandlerSuite) TestWebsocketRegisterFailure() {
 func (s *HandlerSuite) TestWebsocketSessionRunErrorIsLogged() {
 	runCh := make(chan struct{})
 	sess := &stubSession{id: "agent-err", runErr: errors.New("session boom"), runCh: runCh}
-	s.handler = webserver.NewHandler(
-		log.Noop(), s.scm, s.publisher, s.registry, stubFactory{session: sess},
-		s.plan, s.apply, s.unlock,
-		&config.Config{SharedAuthToken: "secret"},
-	)
+	s.handler = s.newHandler(s.registry, stubFactory{session: sess})
 
 	srv := httptest.NewServer(s.handler)
 	s.T().Cleanup(srv.Close)

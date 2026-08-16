@@ -58,11 +58,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return fmt.Errorf("failed to parse terraplane.yaml for repository %s at commit %s: %w", webhook.RepositorySlug, webhook.CommitSHA, err)
 	}
 
-	// Resolve the stacks and environments for the job
-	stackNames, environmentNames, action, err := j.resolveStacksAndEnvironments(&cmd)
-	if err != nil {
-		return fmt.Errorf("failed to resolve stacks and environments for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
-	}
+	stackNames, environmentNames, action := j.resolveStacksAndEnvironments(&cmd)
 
 	resolvedStacks, err := config.ResolveStacks(stackNames, environmentNames)
 	if err != nil {
@@ -106,7 +102,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 	return nil
 }
 
-func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]string, []string, string, error) {
+func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]string, []string, string) {
 	// TODO: This is awful. We should find a more elegant way to do this
 	stacks := []string{}
 	environments := []string{}
@@ -126,5 +122,5 @@ func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]strin
 		environments = cmd.Unlock.Environments
 		action = "unlock"
 	}
-	return stacks, environments, action, nil
+	return stacks, environments, action
 }
