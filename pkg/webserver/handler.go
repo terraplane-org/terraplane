@@ -84,7 +84,14 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, webhook := range webhooks {
 
-		_ = h.jobService.CreatePendingJobs(r.Context(), &webhook)
+		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
+			h.logger.Error(
+				"Failed to create pending jobs from webhook",
+				"repo", webhook.RepositorySlug,
+				"pr", webhook.PRNumber,
+				"error", err,
+			)
+		}
 
 		// TODO: Is this really the appropriate place to react to the comment?
 		if err := h.scmPublisher.AcknowledgeComment(

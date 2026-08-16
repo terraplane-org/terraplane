@@ -99,7 +99,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			"stack", stack.Name,
 			"action", action,
 			"agent", agent,
-			"job", job.ID,
+			"job_id", job.ID,
 		)
 	}
 

@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -33,13 +32,17 @@ func (r *jobRepository) UpsertPendingJob(ctx context.Context, repo string, prNum
 
 	var job models.Job
 	err = r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where(
 				"repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?",
 				repo, prNumber, stackName, action, models.JobStatusPending,
 			).
-			First(&job).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+			Limit(1).
+			Find(&job)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
 			job = models.Job{
 				ID:        uuid.NewString(),
 				Repo:      repo,
@@ -53,9 +56,6 @@ func (r *jobRepository) UpsertPendingJob(ctx context.Context, repo string, prNum
 				Status:    models.JobStatusPending,
 			}
 			return tx.Create(&job).Error
-		}
-		if err != nil {
-			return err
 		}
 
 		job.AgentID = agent
