@@ -27,42 +27,6 @@ import (
 	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
 
-type stubPlan struct {
-	err    error
-	called chan command.PlanCommand
-}
-
-func (s *stubPlan) RunPlan(_ context.Context, plan command.PlanCommand) error {
-	if s.called != nil {
-		s.called <- plan
-	}
-	return s.err
-}
-
-type stubApply struct {
-	err    error
-	called chan command.ApplyCommand
-}
-
-func (s *stubApply) RunApply(_ context.Context, apply command.ApplyCommand) error {
-	if s.called != nil {
-		s.called <- apply
-	}
-	return s.err
-}
-
-type stubUnlock struct {
-	err    error
-	called chan command.UnlockCommand
-}
-
-func (s *stubUnlock) RunUnlock(_ context.Context, unlock command.UnlockCommand) error {
-	if s.called != nil {
-		s.called <- unlock
-	}
-	return s.err
-}
-
 type stubJobs struct {
 	err    error
 	called chan *scm.Webhook
@@ -106,9 +70,6 @@ type HandlerSuite struct {
 	scm       *mock_scm.MockProvider
 	publisher *mock_scm.MockPublisher
 	registry  agentsession.Registry
-	plan      *stubPlan
-	apply     *stubApply
-	unlock    *stubUnlock
 	jobs      *stubJobs
 	handler   http.Handler
 }
@@ -122,9 +83,6 @@ func (s *HandlerSuite) SetupTest() {
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
 	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.registry = agentsession.NewRegistry(log.Noop())
-	s.plan = &stubPlan{called: make(chan command.PlanCommand, 1)}
-	s.apply = &stubApply{called: make(chan command.ApplyCommand, 1)}
-	s.unlock = &stubUnlock{called: make(chan command.UnlockCommand, 1)}
 	s.jobs = &stubJobs{called: make(chan *scm.Webhook, 8)}
 	s.handler = s.newHandler(s.registry, stubFactory{session: &stubSession{id: "agent-1"}})
 }
@@ -136,9 +94,6 @@ func (s *HandlerSuite) newHandler(registry agentsession.Registry, factory agents
 		s.publisher,
 		registry,
 		factory,
-		s.plan,
-		s.apply,
-		s.unlock,
 		s.jobs,
 		&config.Config{SharedAuthToken: "secret"},
 	)
@@ -196,11 +151,6 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 		require.Equal(s.T(), "not a terraplane command", got.FullCommand)
 	case <-time.After(2 * time.Second):
 		s.T().Fatal("timed out waiting for CreatePendingJobs")
-	}
-	select {
-	case <-s.plan.called:
-		s.T().Fatal("plan should not run for unknown commands")
-	case <-time.After(50 * time.Millisecond):
 	}
 }
 

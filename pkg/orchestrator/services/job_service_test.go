@@ -205,6 +205,7 @@ func (s *JobServiceSuite) TestClaimPendingJobsPlan() {
 	require.Equal(s.T(), "abc123", cmds[0].Plan.CommitSHA)
 	require.Equal(s.T(), "jace", cmds[0].Plan.TriggerUser)
 	require.Equal(s.T(), "agent-a", cmds[0].Plan.Agent)
+	require.Equal(s.T(), "job-1", cmds[0].Plan.JobID)
 	require.Equal(s.T(), []string{"a"}, cmds[0].Plan.Stacks)
 	require.Equal(s.T(), "-target=x", cmds[0].Plan.PlanFlags)
 }

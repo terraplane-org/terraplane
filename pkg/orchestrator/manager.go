@@ -69,7 +69,7 @@ func (o *manager) Start(ctx context.Context) error {
 		)
 		defer cancel()
 
-		o.server.Shutdown(shutdownCtx)
+		_ = o.server.Shutdown(shutdownCtx)
 		return o.dispatcher.Shutdown(shutdownCtx)
 	})
 
