@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
@@ -33,7 +36,7 @@ func (s *JobServiceSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
 	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
-	s.svc = services.NewJobService(log.Noop(), s.jobs, s.scm)
+	s.svc = services.NewJobService(log.Noop(), s.jobs, s.scm, &config.Config{OrchestratorJobLease: time.Minute})
 }
 
 func webhook(comment string) *scm.Webhook {
@@ -152,4 +155,111 @@ func (s *JobServiceSuite) TestUpsertFailureAbortsRemainingStacks() {
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to upsert pending job")
+}
+
+func claimedJob(action models.JobAction, payload string) *models.Job {
+	return &models.Job{
+		ID:        "job-1",
+		Repo:      "acme/infra",
+		PRNumber:  42,
+		StackName: "a",
+		CommitSHA: "abc123",
+		AgentID:   "agent-a",
+		Action:    action,
+		Payload:   payload,
+	}
+}
+
+func (s *JobServiceSuite) expectClaim(jobs []*models.Job, err error) {
+	s.jobs.EXPECT().ClaimPendingJobsForAgents(
+		gomock.Any(),
+		[]string{"agent-a"},
+		models.JobStatusClaimed,
+		gomock.Any(),
+	).Return(jobs, err)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsEmptyAgents() {
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), nil)
+	require.NoError(s.T(), err)
+	require.Nil(s.T(), cmds)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsRepositoryError() {
+	s.expectClaim(nil, errors.New("db down"))
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.Error(s.T(), err)
+	require.Nil(s.T(), cmds)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsPlan() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`)}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.NoError(s.T(), err)
+	require.Len(s.T(), cmds, 1)
+	require.Equal(s.T(), command.KindPlan, cmds[0].Kind)
+	require.Equal(s.T(), "acme/infra", cmds[0].Plan.Repo)
+	require.Equal(s.T(), 42, cmds[0].Plan.PRNumber)
+	require.Equal(s.T(), "abc123", cmds[0].Plan.CommitSHA)
+	require.Equal(s.T(), "jace", cmds[0].Plan.TriggerUser)
+	require.Equal(s.T(), "agent-a", cmds[0].Plan.Agent)
+	require.Equal(s.T(), []string{"a"}, cmds[0].Plan.Stacks)
+	require.Equal(s.T(), "-target=x", cmds[0].Plan.PlanFlags)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsApply() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobActionApply, `{"trigger_user":"jace"}`)}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), command.KindApply, cmds[0].Kind)
+	require.Equal(s.T(), "agent-a", cmds[0].Apply.Agent)
+	require.Equal(s.T(), []string{"a"}, cmds[0].Apply.Stacks)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsUnlock() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobAction("unlock"), `{"trigger_user":"jace"}`)}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), command.KindUnlock, cmds[0].Kind)
+	require.Equal(s.T(), "agent-a", cmds[0].Unlock.Agent)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsEmptyPayload() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "")}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
+	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsPayloadNonStringFields() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":1,"plan_flags":null}`)}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
+	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsInvalidPayload() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "{")}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "invalid payload")
+	require.Nil(s.T(), cmds)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobsUnknownAction() {
+	s.expectClaim([]*models.Job{claimedJob(models.JobAction("nope"), `{}`)}, nil)
+
+	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "unknown job action")
+	require.Nil(s.T(), cmds)
 }

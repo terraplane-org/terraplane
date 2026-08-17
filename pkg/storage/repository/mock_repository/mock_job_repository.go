@@ -12,6 +12,7 @@ package mock_repository
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/xyzjace/terraplane/pkg/storage/models"
 	gomock "go.uber.org/mock/gomock"
@@ -39,6 +40,21 @@ func NewMockJobRepository(ctrl *gomock.Controller) *MockJobRepository {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockJobRepository) EXPECT() *MockJobRepositoryMockRecorder {
 	return m.recorder
+}
+
+// ClaimPendingJobsForAgents mocks base method.
+func (m *MockJobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimPendingJobsForAgents", ctx, agents, status, leaseExpiresAt)
+	ret0, _ := ret[0].([]*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimPendingJobsForAgents indicates an expected call of ClaimPendingJobsForAgents.
+func (mr *MockJobRepositoryMockRecorder) ClaimPendingJobsForAgents(ctx, agents, status, leaseExpiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPendingJobsForAgents", reflect.TypeOf((*MockJobRepository)(nil).ClaimPendingJobsForAgents), ctx, agents, status, leaseExpiresAt)
 }
 
 // Create mocks base method.
@@ -97,21 +113,6 @@ func (m *MockJobRepository) Get(ctx context.Context, jobID string) (*models.Job,
 func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
-}
-
-// GetPendingJobsForAgents mocks base method.
-func (m *MockJobRepository) GetPendingJobsForAgents(ctx context.Context, agents []string) ([]*models.Job, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPendingJobsForAgents", ctx, agents)
-	ret0, _ := ret[0].([]*models.Job)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPendingJobsForAgents indicates an expected call of GetPendingJobsForAgents.
-func (mr *MockJobRepositoryMockRecorder) GetPendingJobsForAgents(ctx, agents any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingJobsForAgents", reflect.TypeOf((*MockJobRepository)(nil).GetPendingJobsForAgents), ctx, agents)
 }
 
 // Update mocks base method.

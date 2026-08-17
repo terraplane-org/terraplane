@@ -75,6 +75,10 @@ func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) er
 	return s.err
 }
 
+func (s *stubJobs) ClaimPendingJobs(context.Context, []string) ([]command.Command, error) {
+	return nil, nil
+}
+
 type stubFactory struct {
 	session agentsession.Session
 }
