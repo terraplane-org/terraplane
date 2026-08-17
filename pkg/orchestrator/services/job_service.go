@@ -3,33 +3,40 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
+	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
+	ClaimPendingJobs(ctx context.Context, agents []string) ([]*models.Job, error)
 }
 
 type jobService struct {
 	logger        log.Logger
 	jobRepository repository.JobRepository
 	scmProvider   scm.Provider
+	jobLease      time.Duration
 }
 
 func NewJobService(
 	logger log.Logger,
 	jobRepository repository.JobRepository,
 	scmProvider scm.Provider,
+	config *config.Config,
 ) JobService {
 	return &jobService{
 		logger:        logger,
 		jobRepository: jobRepository,
 		scmProvider:   scmProvider,
+		jobLease:      config.OrchestratorJobLease,
 	}
 }
 
@@ -100,6 +107,15 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 	}
 
 	return nil
+}
+
+func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]*models.Job, error) {
+	if len(agents) == 0 {
+		return nil, nil
+	}
+
+	expires := time.Now().Add(j.jobLease)
+	return j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
 }
 
 func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]string, []string, string) {

@@ -43,10 +43,10 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	planService := services.NewPlanService(logger, registry, provider, jobRepository)
 	applyService := services.NewApplyService(logger, registry, provider, jobRepository, lockRepository)
 	unlockService := services.NewUnlockService(logger, provider, publisher, jobRepository, lockRepository)
-	jobService := services.NewJobService(logger, jobRepository, provider)
+	jobService := services.NewJobService(logger, jobRepository, provider, configConfig)
 	handler := webserver.NewHandler(logger, provider, publisher, registry, factory, planService, applyService, unlockService, jobService, configConfig)
 	server := webserver.NewServer(configConfig, logger, handler)
-	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobRepository, provider, registry)
+	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobService, provider, registry)
 	manager := orchestrator.NewManager(configConfig, logger, server, db, dispatcher)
 	return manager, nil
 }

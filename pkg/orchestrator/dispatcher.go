@@ -7,8 +7,8 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
-	"github.com/xyzjace/terraplane/pkg/storage/repository"
 )
 
 type Dispatcher interface {
@@ -18,7 +18,7 @@ type Dispatcher interface {
 
 type dispatcher struct {
 	logger          log.Logger
-	jobRepository   repository.JobRepository
+	jobService      services.JobService
 	scmProvider     scm.Provider
 	sessionRegistry agentsession.Registry
 	jobPollInterval time.Duration
@@ -43,13 +43,13 @@ func (d *dispatcher) pollForJobs(ctx context.Context) error {
 	for {
 		agents := d.sessionRegistry.GetAllAgents()
 		if len(agents) > 0 {
-			jobs, err := d.jobRepository.GetPendingJobsForAgents(ctx, agents)
+			jobs, err := d.jobService.ClaimPendingJobs(ctx, agents)
 			if err != nil {
-				d.logger.Error("Failed to get pending jobs", "error", err)
-				continue
-			}
-			for _, job := range jobs {
-				d.logger.Info("Dispatching job to agent", "job", job, "agent", job.AgentID)
+				d.logger.Error("Failed to claim pending jobs", "error", err)
+			} else {
+				for _, job := range jobs {
+					d.logger.Info("Dispatching job to agent", "job", job, "agent", job.AgentID)
+				}
 			}
 		}
 		time.Sleep(d.jobPollInterval)
@@ -61,10 +61,10 @@ func (d *dispatcher) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func NewDispatcher(config *config.Config, logger log.Logger, jobRepository repository.JobRepository, scmProvider scm.Provider, sessionRegistry agentsession.Registry) Dispatcher {
+func NewDispatcher(config *config.Config, logger log.Logger, jobService services.JobService, scmProvider scm.Provider, sessionRegistry agentsession.Registry) Dispatcher {
 	return &dispatcher{
 		logger:          logger,
-		jobRepository:   jobRepository,
+		jobService:      jobService,
 		scmProvider:     scmProvider,
 		sessionRegistry: sessionRegistry,
 		jobPollInterval: config.OrchestratorDispatcherJobPollInterval,
