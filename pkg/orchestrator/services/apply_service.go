@@ -23,7 +23,6 @@ type applyService struct {
 	logger        log.Logger
 	agentRegistry agentsession.Registry
 	scmProvider   scm.Provider
-	jobs          repository.JobRepository
 	locks         repository.LockRepository
 }
 
@@ -31,14 +30,12 @@ func NewApplyService(
 	logger log.Logger,
 	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
-	jobs repository.JobRepository,
 	locks repository.LockRepository,
 ) ApplyService {
 	return &applyService{
 		logger:        logger,
 		agentRegistry: agentRegistry,
 		scmProvider:   scmProvider,
-		jobs:          jobs,
 		locks:         locks,
 	}
 }
@@ -126,7 +123,7 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 			continue
 		}
 
-		jobID := newJobID()
+		jobID := apply.JobID
 
 		if err := s.locks.Create(ctx, &models.ProjectLock{
 			Repo:      apply.Repo,
@@ -147,24 +144,6 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 				continue
 			}
 			return fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, apply.Repo, err)
-		}
-
-		if err := s.jobs.Create(ctx, &models.Job{
-			ID:        jobID,
-			Repo:      apply.Repo,
-			PRNumber:  int32(apply.PRNumber),
-			StackName: stack.Name,
-			Dir:       stack.Dir,
-			CommitSHA: apply.CommitSHA,
-			Status:    models.JobStatusPending,
-		}); err != nil {
-			if delErr := s.locks.Delete(ctx, apply.Repo, stack.Name, "default"); delErr != nil {
-				return fmt.Errorf(
-					"failed to create job for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
-					stack.Name, apply.Repo, apply.PRNumber, err, delErr,
-				)
-			}
-			return fmt.Errorf("failed to create job for stack %q in repository %s pull request #%d: %w", stack.Name, apply.Repo, apply.PRNumber, err)
 		}
 
 		s.logger.Info(
@@ -193,12 +172,6 @@ func (s *applyService) RunApply(ctx context.Context, apply command.ApplyCommand)
 			if delErr := s.locks.Delete(ctx, apply.Repo, stack.Name, "default"); delErr != nil {
 				return fmt.Errorf(
 					"failed to dispatch apply command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to release lock: %v)",
-					stack.Agent, stack.Name, apply.Repo, apply.PRNumber, err, delErr,
-				)
-			}
-			if delErr := s.jobs.Delete(ctx, jobID); delErr != nil {
-				return fmt.Errorf(
-					"failed to dispatch apply command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to delete job: %v)",
 					stack.Agent, stack.Name, apply.Repo, apply.PRNumber, err, delErr,
 				)
 			}

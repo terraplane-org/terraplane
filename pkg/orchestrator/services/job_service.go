@@ -152,6 +152,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		plan.CommitSHA = job.CommitSHA
 		plan.TriggerUser = triggerUser
 		plan.Agent = job.AgentID
+		plan.JobID = job.ID
 		return command.Command{Kind: command.KindPlan, Plan: plan}, nil
 	case models.JobActionApply:
 		apply := command.ApplyCommand{Stacks: stacks}
@@ -160,6 +161,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		apply.CommitSHA = job.CommitSHA
 		apply.TriggerUser = triggerUser
 		apply.Agent = job.AgentID
+		apply.JobID = job.ID
 		return command.Command{Kind: command.KindApply, Apply: apply}, nil
 	case models.JobAction("unlock"):
 		unlock := command.UnlockCommand{Stacks: stacks}
@@ -168,6 +170,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		unlock.CommitSHA = job.CommitSHA
 		unlock.TriggerUser = triggerUser
 		unlock.Agent = job.AgentID
+		unlock.JobID = job.ID
 		return command.Command{Kind: command.KindUnlock, Unlock: unlock}, nil
 	default:
 		return command.Command{}, fmt.Errorf("unknown job action: %s", job.Action)
