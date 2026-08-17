@@ -17,8 +17,8 @@ type Command struct {
 }
 
 type base struct {
-	Repo, TriggerUser, RawComment, CommitSHA string
-	PRNumber                                 int
+	Repo, TriggerUser, RawComment, CommitSHA, Agent string
+	PRNumber                                        int
 }
 
 type PlanCommand struct {

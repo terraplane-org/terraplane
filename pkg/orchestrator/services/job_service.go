@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
-	ClaimPendingJobs(ctx context.Context, agents []string) ([]*models.Job, error)
+	ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error)
 }
 
 type jobService struct {
@@ -109,13 +110,91 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 	return nil
 }
 
-func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]*models.Job, error) {
+func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error) {
 	if len(agents) == 0 {
 		return nil, nil
 	}
 
 	expires := time.Now().Add(j.jobLease)
-	return j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
+	jobs, err := j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
+	if err != nil {
+		return nil, err
+	}
+
+	// Rehydrate jobs in to command objects
+	commands := make([]command.Command, len(jobs))
+	for i, job := range jobs {
+		commands[i], err = j.commandFromJob(job)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return commands, nil
+}
+
+func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
+	payload, err := unmarshalJobPayload(job.Payload)
+	if err != nil {
+		return command.Command{}, fmt.Errorf("invalid payload for job %s: %w", job.ID, err)
+	}
+
+	stacks := []string{job.StackName}
+	triggerUser := payloadString(payload, "trigger_user")
+
+	switch job.Action {
+	case models.JobActionPlan:
+		plan := command.PlanCommand{
+			Stacks:    stacks,
+			PlanFlags: payloadString(payload, "plan_flags"),
+		}
+		plan.Repo = job.Repo
+		plan.PRNumber = int(job.PRNumber)
+		plan.CommitSHA = job.CommitSHA
+		plan.TriggerUser = triggerUser
+		plan.Agent = job.AgentID
+		return command.Command{Kind: command.KindPlan, Plan: plan}, nil
+	case models.JobActionApply:
+		apply := command.ApplyCommand{Stacks: stacks}
+		apply.Repo = job.Repo
+		apply.PRNumber = int(job.PRNumber)
+		apply.CommitSHA = job.CommitSHA
+		apply.TriggerUser = triggerUser
+		apply.Agent = job.AgentID
+		return command.Command{Kind: command.KindApply, Apply: apply}, nil
+	case models.JobAction("unlock"):
+		unlock := command.UnlockCommand{Stacks: stacks}
+		unlock.Repo = job.Repo
+		unlock.PRNumber = int(job.PRNumber)
+		unlock.CommitSHA = job.CommitSHA
+		unlock.TriggerUser = triggerUser
+		unlock.Agent = job.AgentID
+		return command.Command{Kind: command.KindUnlock, Unlock: unlock}, nil
+	default:
+		return command.Command{}, fmt.Errorf("unknown job action: %s", job.Action)
+	}
+}
+
+func unmarshalJobPayload(raw string) (map[string]any, error) {
+	if raw == "" {
+		return map[string]any{}, nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func payloadString(payload map[string]any, key string) string {
+	v, ok := payload[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]string, []string, string) {
