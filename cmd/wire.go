@@ -41,6 +41,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		orchestrator.NewManager,
 		github.NewPublisher,
 		services.NewJobService,
+		orchestrator.NewDispatcher,
 		wire.Bind(new(orchestrator.SchemaChecker), new(*storage.DB)),
 	)
 	return nil, nil

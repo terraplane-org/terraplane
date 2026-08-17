@@ -56,6 +56,20 @@ func (mr *MockRegistryMockRecorder) Get(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockRegistry)(nil).Get), ctx, id)
 }
 
+// GetAllAgents mocks base method.
+func (m *MockRegistry) GetAllAgents() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllAgents")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetAllAgents indicates an expected call of GetAllAgents.
+func (mr *MockRegistryMockRecorder) GetAllAgents() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAgents", reflect.TypeOf((*MockRegistry)(nil).GetAllAgents))
+}
+
 // Register mocks base method.
 func (m *MockRegistry) Register(ctx context.Context, session agentsession.Session) error {
 	m.ctrl.T.Helper()

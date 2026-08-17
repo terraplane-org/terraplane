@@ -2,6 +2,8 @@ package agentsession
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -13,6 +15,7 @@ type Registry interface {
 	Register(ctx context.Context, session Session) error
 	Unregister(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (Session, error)
+	GetAllAgents() []string
 }
 
 type registry struct {
@@ -50,6 +53,12 @@ func (r *registry) Get(ctx context.Context, id string) (Session, error) {
 		return nil, nil
 	}
 	return session, nil
+}
+
+func (r *registry) GetAllAgents() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Collect(maps.Keys(r.sessions))
 }
 
 func NewRegistry(logger log.Logger) Registry {

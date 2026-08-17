@@ -112,14 +112,15 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
-func (r *jobRepository) GetPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string) (*models.Job, error) {
-	var job models.Job
-	err := r.db.pool.WithContext(ctx).First(&job, "repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?", repo, prNumber, stackName, action, models.JobStatusPending).Error
+func (r *jobRepository) GetPendingJobsForAgents(ctx context.Context, agents []string) ([]*models.Job, error) {
+	var jobs []*models.Job
+	err := r.db.pool.WithContext(ctx).Where("agent_id IN ? AND status = ? ORDER BY created_at", agents, models.JobStatusPending).Find(&jobs).Error
 	if err != nil {
 		return nil, err
 	}
-	return &job, nil
+	return jobs, nil
 }
+
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }

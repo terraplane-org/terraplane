@@ -99,19 +99,19 @@ func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
 }
 
-// GetPendingJob mocks base method.
-func (m *MockJobRepository) GetPendingJob(ctx context.Context, repo string, prNumber int, stackName, action string) (*models.Job, error) {
+// GetPendingJobsForAgents mocks base method.
+func (m *MockJobRepository) GetPendingJobsForAgents(ctx context.Context, agents []string) ([]*models.Job, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPendingJob", ctx, repo, prNumber, stackName, action)
-	ret0, _ := ret[0].(*models.Job)
+	ret := m.ctrl.Call(m, "GetPendingJobsForAgents", ctx, agents)
+	ret0, _ := ret[0].([]*models.Job)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPendingJob indicates an expected call of GetPendingJob.
-func (mr *MockJobRepositoryMockRecorder) GetPendingJob(ctx, repo, prNumber, stackName, action any) *gomock.Call {
+// GetPendingJobsForAgents indicates an expected call of GetPendingJobsForAgents.
+func (mr *MockJobRepositoryMockRecorder) GetPendingJobsForAgents(ctx, agents any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingJob", reflect.TypeOf((*MockJobRepository)(nil).GetPendingJob), ctx, repo, prNumber, stackName, action)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingJobsForAgents", reflect.TypeOf((*MockJobRepository)(nil).GetPendingJobsForAgents), ctx, agents)
 }
 
 // Update mocks base method.
