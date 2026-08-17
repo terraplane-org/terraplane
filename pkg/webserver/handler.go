@@ -31,6 +31,7 @@ type handler struct {
 	applyService    services.ApplyService
 	unlockService   services.UnlockService
 	sharedAuthToken string
+	jobService      services.JobService
 }
 
 func NewHandler(
@@ -42,6 +43,7 @@ func NewHandler(
 	planService services.PlanService,
 	applyService services.ApplyService,
 	unlockService services.UnlockService,
+	jobService services.JobService,
 	config *config.Config,
 ) http.Handler {
 	h := &handler{
@@ -55,6 +57,7 @@ func NewHandler(
 		applyService:    applyService,
 		unlockService:   unlockService,
 		sharedAuthToken: config.SharedAuthToken,
+		jobService:      jobService,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -81,17 +84,15 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, webhook := range webhooks {
 
-		cmd := command.ParseWebhook(&webhook)
-		if cmd.Kind == command.KindUnknown {
-			h.logger.Debug(
-				"Ignoring pull request comment that is not a terraplane command",
+		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
+			h.logger.Error(
+				"Failed to create pending jobs from webhook",
 				"repo", webhook.RepositorySlug,
 				"pr", webhook.PRNumber,
-				"user", webhook.TriggeringUser,
-				"comment", webhook.FullCommand,
+				"error", err,
 			)
-			continue
 		}
+
 		// TODO: Is this really the appropriate place to react to the comment?
 		if err := h.scmPublisher.AcknowledgeComment(
 			r.Context(),
@@ -107,7 +108,7 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 				"error", err,
 			)
 		}
-		h.handleCommand(r.Context(), cmd)
+		// h.handleCommand(r.Context(), cmd)
 	}
 
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")

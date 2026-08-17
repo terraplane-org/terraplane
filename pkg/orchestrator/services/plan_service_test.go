@@ -238,7 +238,7 @@ func (s *PlanServiceSuite) TestEnvironmentFlagDispatchesAllStacksInEnv() {
 
 	s.scm.EXPECT().GetFile("terraplane.yaml", plan.CommitSHA, plan.Repo).Return(twoEnvYAML, nil)
 	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(sessionA, nil).Times(2) // preflight + dispatch
-	s.registry.EXPECT().Get(gomock.Any(), "agent-b").Return(sessionB, nil)           // dispatch only
+	s.registry.EXPECT().Get(gomock.Any(), "agent-b").Return(sessionB, nil)          // dispatch only
 	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	sessionA.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)
 	sessionB.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)

@@ -2,9 +2,14 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type jobRepository struct {
@@ -19,6 +24,85 @@ func (r *jobRepository) Create(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Create(job).Error
 }
 
+func (r *jobRepository) UpsertPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string, payload map[string]interface{}, agent string) (*models.Job, error) {
+	payloadJSON, err := marshalJobPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var job models.Job
+	err = r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where(
+				"repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?",
+				repo, prNumber, stackName, action, models.JobStatusPending,
+			).
+			Limit(1).
+			Find(&job)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			job = models.Job{
+				ID:        uuid.NewString(),
+				Repo:      repo,
+				PRNumber:  int32(prNumber),
+				StackName: stackName,
+				Dir:       stringFromPayload(payload, "dir"),
+				CommitSHA: stringFromPayload(payload, "commit_sha"),
+				AgentID:   agent,
+				Action:    models.JobAction(action),
+				Payload:   payloadJSON,
+				Status:    models.JobStatusPending,
+			}
+			return tx.Create(&job).Error
+		}
+
+		job.AgentID = agent
+		job.Payload = payloadJSON
+		if dir := stringFromPayload(payload, "dir"); dir != "" {
+			job.Dir = dir
+		}
+		if sha := stringFromPayload(payload, "commit_sha"); sha != "" {
+			job.CommitSHA = sha
+		}
+		job.Output = ""
+		job.ErrorMsg = ""
+		job.LeaseExpiresAt = nil
+		return tx.Save(&job).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func marshalJobPayload(payload map[string]interface{}) (string, error) {
+	if payload == nil {
+		return "{}", nil
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal job payload: %w", err)
+	}
+	return string(b), nil
+}
+
+func stringFromPayload(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	v, ok := payload[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
 func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, error) {
 	var job models.Job
 	err := r.db.pool.WithContext(ctx).First(&job, "id = ?", jobID).Error
@@ -28,6 +112,14 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
+func (r *jobRepository) GetPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string) (*models.Job, error) {
+	var job models.Job
+	err := r.db.pool.WithContext(ctx).First(&job, "repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?", repo, prNumber, stackName, action, models.JobStatusPending).Error
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }
