@@ -10,25 +10,27 @@ import (
 )
 
 type Config struct {
-	LogLevel                          string        `mapstructure:"LOG_LEVEL"`
-	ServerShutdownTimer               time.Duration `mapstructure:"SERVER_SHUTDOWN_TIMER"`
-	OrchestratorListenAddress         string        `mapstructure:"ORCHESTRATOR_LISTEN_ADDRESS"`
-	OrchestratorListenPort            int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
-	OrchestratorGithubWebhookSecret   string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
-	OrchestratorGithubAccessToken     string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
-	OrchestratorAgentPingInterval     time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PING_INTERVAL"`
-	OrchestratorAgentPongTimeout      time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PONG_TIMEOUT"`
-	OrchestratorAgentMissedHeartbeats int           `mapstructure:"ORCHESTRATOR_AGENT_MISSED_HEARTBEATS"`
-	AgentClientShutdownTimer          time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
-	AgentOrchestratorURL              string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
-	AgentID                           string        `mapstructure:"AGENT_ID"`
-	AgentSCMSSHKeyPath                string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
-	AgentWorkDir                      string        `mapstructure:"AGENT_WORK_DIR"`
-	AgentTerraformBinDir              string        `mapstructure:"AGENT_TERRAFORM_BIN_DIR"`
-	AgentDefaultTerraformVersion      string        `mapstructure:"AGENT_DEFAULT_TERRAFORM_VERSION"`
-	DatabaseDriver                    string        `mapstructure:"DATABASE_DRIVER"`
-	DatabaseURL                       string        `mapstructure:"DATABASE_URL"`
-	SharedAuthToken                   string        `mapstructure:"SHARED_AUTH_TOKEN"`
+	LogLevel                              string        `mapstructure:"LOG_LEVEL"`
+	ServerShutdownTimer                   time.Duration `mapstructure:"SERVER_SHUTDOWN_TIMER"`
+	OrchestratorListenAddress             string        `mapstructure:"ORCHESTRATOR_LISTEN_ADDRESS"`
+	OrchestratorListenPort                int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
+	OrchestratorGithubWebhookSecret       string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
+	OrchestratorGithubAccessToken         string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
+	OrchestratorAgentPingInterval         time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PING_INTERVAL"`
+	OrchestratorAgentPongTimeout          time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PONG_TIMEOUT"`
+	OrchestratorAgentMissedHeartbeats     int           `mapstructure:"ORCHESTRATOR_AGENT_MISSED_HEARTBEATS"`
+	OrchestratorDispatcherJobPollInterval time.Duration `mapstructure:"ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL"`
+	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
+	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
+	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
+	AgentID                               string        `mapstructure:"AGENT_ID"`
+	AgentSCMSSHKeyPath                    string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
+	AgentWorkDir                          string        `mapstructure:"AGENT_WORK_DIR"`
+	AgentTerraformBinDir                  string        `mapstructure:"AGENT_TERRAFORM_BIN_DIR"`
+	AgentDefaultTerraformVersion          string        `mapstructure:"AGENT_DEFAULT_TERRAFORM_VERSION"`
+	DatabaseDriver                        string        `mapstructure:"DATABASE_DRIVER"`
+	DatabaseURL                           string        `mapstructure:"DATABASE_URL"`
+	SharedAuthToken                       string        `mapstructure:"SHARED_AUTH_TOKEN"`
 }
 
 func NewConfig() (*Config, error) {
@@ -69,6 +71,8 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_AGENT_PING_INTERVAL", "30s")
 	viper.SetDefault("ORCHESTRATOR_AGENT_PONG_TIMEOUT", "3s")
 	viper.SetDefault("ORCHESTRATOR_AGENT_MISSED_HEARTBEATS", 2)
+	viper.SetDefault("ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL", "5s")
+	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
 	viper.SetDefault("AGENT_ID", "")

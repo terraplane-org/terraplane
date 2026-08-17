@@ -19,6 +19,15 @@ type stubSchema struct {
 
 func (s stubSchema) RequireCurrentSchema(context.Context) error { return s.err }
 
+type stubDispatcher struct{}
+
+func (stubDispatcher) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (stubDispatcher) Shutdown(context.Context) error { return nil }
+
 type stubServer struct {
 	startErr    error
 	shutdownErr error
@@ -50,6 +59,7 @@ func TestStartMissingAuthToken(t *testing.T) {
 		log.Noop(),
 		&stubServer{},
 		stubSchema{},
+		stubDispatcher{},
 	)
 	err := m.Start(context.Background())
 	require.Error(t, err)
@@ -62,6 +72,7 @@ func TestStartSchemaCheckFailure(t *testing.T) {
 		log.Noop(),
 		&stubServer{},
 		stubSchema{err: errors.New("migrations pending")},
+		stubDispatcher{},
 	)
 	err := m.Start(context.Background())
 	require.Error(t, err)
@@ -78,6 +89,7 @@ func TestStartAndShutdownOnCancel(t *testing.T) {
 		log.Noop(),
 		srv,
 		stubSchema{},
+		stubDispatcher{},
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,6 +123,7 @@ func TestStartPropagatesServerError(t *testing.T) {
 		log.Noop(),
 		&stubServer{startErr: errors.New("bind failed")},
 		stubSchema{},
+		stubDispatcher{},
 	)
 
 	err := m.Start(context.Background())

@@ -24,7 +24,6 @@ type ApplyServiceSuite struct {
 	ctrl     *gomock.Controller
 	registry *mock_agentsession.MockRegistry
 	scm      *mock_scm.MockProvider
-	jobs     *mock_repository.MockJobRepository
 	locks    *mock_repository.MockLockRepository
 	svc      services.ApplyService
 }
@@ -37,9 +36,8 @@ func (s *ApplyServiceSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.registry = mock_agentsession.NewMockRegistry(s.ctrl)
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
-	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
 	s.locks = mock_repository.NewMockLockRepository(s.ctrl)
-	s.svc = services.NewApplyService(log.Noop(), s.registry, s.scm, s.jobs, s.locks)
+	s.svc = services.NewApplyService(log.Noop(), s.registry, s.scm, s.locks)
 }
 
 func (s *ApplyServiceSuite) TestFetchConfigFailure() {
@@ -142,6 +140,7 @@ func (s *ApplyServiceSuite) TestLockCreateHardFailureAborts() {
 
 func (s *ApplyServiceSuite) TestPartialDispatchSkipsLockedContinues() {
 	apply := applyCmd("terraplane apply")
+	apply.JobID = "job-1"
 	sessionA := mock_agentsession.NewMockSession(s.ctrl)
 	sessionB := mock_agentsession.NewMockSession(s.ctrl)
 
@@ -160,14 +159,9 @@ func (s *ApplyServiceSuite) TestPartialDispatchSkipsLockedContinues() {
 	).Times(2)
 	s.locks.EXPECT().Get(gomock.Any(), apply.Repo, "a", "default").Return(&models.ProjectLock{PRNumber: 1, LockedBy: "x"}, nil)
 
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, job *models.Job) error {
-			require.Equal(s.T(), "b", job.StackName)
-			return nil
-		},
-	)
 	sessionB.EXPECT().Write(gomock.Any(), gomock.AssignableToTypeOf(&terraplanev1.TerraformEnvelope{})).DoAndReturn(
 		func(_ context.Context, env *terraplanev1.TerraformEnvelope) error {
+			require.Equal(s.T(), "job-1", env.GetJobId())
 			require.Equal(s.T(), "b", env.GetApply().StackName)
 			return nil
 		},
@@ -177,52 +171,16 @@ func (s *ApplyServiceSuite) TestPartialDispatchSkipsLockedContinues() {
 	require.NoError(s.T(), err)
 }
 
-func (s *ApplyServiceSuite) TestJobCreateFailureReleasesLock() {
+func (s *ApplyServiceSuite) TestDispatchFailureReleasesLock() {
 	apply := applyCmd("terraplane apply -s a")
+	apply.JobID = "job-1"
 	session := mock_agentsession.NewMockSession(s.ctrl)
 
 	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
 	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(session, nil).Times(2)
 	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("db"))
-	s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(nil)
-
-	err := s.svc.RunApply(context.Background(), apply)
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to create job")
-	require.NotContains(s.T(), err.Error(), "also failed to release lock")
-}
-
-func (s *ApplyServiceSuite) TestJobCreateFailureAndLockReleaseFailure() {
-	apply := applyCmd("terraplane apply -s a")
-	session := mock_agentsession.NewMockSession(s.ctrl)
-
-	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
-	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(session, nil).Times(2)
-	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("db"))
-	s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(errors.New("unlock failed"))
-
-	err := s.svc.RunApply(context.Background(), apply)
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "also failed to release lock")
-}
-
-func (s *ApplyServiceSuite) TestDispatchFailureReleasesLockAndDeletesJob() {
-	apply := applyCmd("terraplane apply -s a")
-	session := mock_agentsession.NewMockSession(s.ctrl)
-
-	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
-	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(session, nil).Times(2)
-	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, job *models.Job) error {
-			s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(nil)
-			s.jobs.EXPECT().Delete(gomock.Any(), job.ID).Return(nil)
-			return nil
-		},
-	)
 	session.EXPECT().Write(gomock.Any(), gomock.Any()).Return(errors.New("agent gone"))
+	s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(nil)
 
 	err := s.svc.RunApply(context.Background(), apply)
 	require.Error(s.T(), err)
@@ -232,12 +190,12 @@ func (s *ApplyServiceSuite) TestDispatchFailureReleasesLockAndDeletesJob() {
 
 func (s *ApplyServiceSuite) TestDispatchFailureLockReleaseFailure() {
 	apply := applyCmd("terraplane apply -s a")
+	apply.JobID = "job-1"
 	session := mock_agentsession.NewMockSession(s.ctrl)
 
 	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
 	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(session, nil).Times(2)
 	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	session.EXPECT().Write(gomock.Any(), gomock.Any()).Return(errors.New("agent gone"))
 	s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(errors.New("unlock failed"))
 
@@ -246,29 +204,9 @@ func (s *ApplyServiceSuite) TestDispatchFailureLockReleaseFailure() {
 	require.Contains(s.T(), err.Error(), "also failed to release lock")
 }
 
-func (s *ApplyServiceSuite) TestDispatchFailureJobDeleteFailure() {
-	apply := applyCmd("terraplane apply -s a")
-	session := mock_agentsession.NewMockSession(s.ctrl)
-
-	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
-	s.registry.EXPECT().Get(gomock.Any(), "agent-a").Return(session, nil).Times(2)
-	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, job *models.Job) error {
-			s.locks.EXPECT().Delete(gomock.Any(), apply.Repo, "a", "default").Return(nil)
-			s.jobs.EXPECT().Delete(gomock.Any(), job.ID).Return(errors.New("delete failed"))
-			return nil
-		},
-	)
-	session.EXPECT().Write(gomock.Any(), gomock.Any()).Return(errors.New("agent gone"))
-
-	err := s.svc.RunApply(context.Background(), apply)
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "also failed to delete job")
-}
-
 func (s *ApplyServiceSuite) TestSkipsDisconnectedAgentContinuesWithConnected() {
 	apply := applyCmd("terraplane apply")
+	apply.JobID = "job-1"
 	sessionB := mock_agentsession.NewMockSession(s.ctrl)
 
 	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
@@ -278,12 +216,6 @@ func (s *ApplyServiceSuite) TestSkipsDisconnectedAgentContinuesWithConnected() {
 	s.registry.EXPECT().Get(gomock.Any(), "agent-b").Return(sessionB, nil)
 
 	s.locks.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, job *models.Job) error {
-			require.Equal(s.T(), "b", job.StackName)
-			return nil
-		},
-	)
 	sessionB.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)
 
 	err := s.svc.RunApply(context.Background(), apply)
@@ -305,6 +237,7 @@ func (s *ApplyServiceSuite) TestLoopRegistryErrorAborts() {
 
 func (s *ApplyServiceSuite) TestHappyPath() {
 	apply := applyCmd("terraplane apply -s a")
+	apply.JobID = "job-1"
 	session := mock_agentsession.NewMockSession(s.ctrl)
 
 	s.scm.EXPECT().GetFile("terraplane.yaml", apply.CommitSHA, apply.Repo).Return(twoStackYAML, nil)
@@ -317,7 +250,6 @@ func (s *ApplyServiceSuite) TestHappyPath() {
 			return nil
 		},
 	)
-	s.jobs.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	session.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil)
 
 	err := s.svc.RunApply(context.Background(), apply)

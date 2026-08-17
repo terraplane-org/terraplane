@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
-	"github.com/xyzjace/terraplane/pkg/storage/models"
-	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
@@ -23,20 +20,17 @@ type planService struct {
 	logger        log.Logger
 	agentRegistry agentsession.Registry
 	scmProvider   scm.Provider
-	jobs          repository.JobRepository
 }
 
 func NewPlanService(
 	logger log.Logger,
 	agentRegistry agentsession.Registry,
 	scmProvider scm.Provider,
-	jobs repository.JobRepository,
 ) PlanService {
 	return &planService{
 		logger:        logger,
 		agentRegistry: agentRegistry,
 		scmProvider:   scmProvider,
-		jobs:          jobs,
 	}
 }
 
@@ -121,19 +115,7 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 			continue
 		}
 
-		jobID := newJobID()
-
-		if err := s.jobs.Create(ctx, &models.Job{
-			ID:        jobID,
-			Repo:      plan.Repo,
-			PRNumber:  int32(plan.PRNumber),
-			StackName: stack.Name,
-			Dir:       stack.Dir,
-			CommitSHA: plan.CommitSHA,
-			Status:    models.JobStatusPending,
-		}); err != nil {
-			return fmt.Errorf("failed to create job for stack %q in repository %s pull request #%d: %w", stack.Name, plan.Repo, plan.PRNumber, err)
-		}
+		jobID := plan.JobID
 
 		s.logger.Info(
 			"Dispatching plan command to agent",
@@ -159,12 +141,6 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 				},
 			},
 		}); err != nil {
-			if delErr := s.jobs.Delete(ctx, jobID); delErr != nil {
-				return fmt.Errorf(
-					"failed to dispatch plan command to agent %q for stack %q in repository %s pull request #%d: %w (also failed to delete job: %v)",
-					stack.Agent, stack.Name, plan.Repo, plan.PRNumber, err, delErr,
-				)
-			}
 			return fmt.Errorf("failed to dispatch plan command to agent %q for stack %q in repository %s pull request #%d: %w", stack.Agent, stack.Name, plan.Repo, plan.PRNumber, err)
 		}
 
@@ -180,8 +156,4 @@ func (s *planService) RunPlan(ctx context.Context, plan command.PlanCommand) err
 	)
 
 	return nil
-}
-
-func newJobID() string {
-	return uuid.NewString()
 }

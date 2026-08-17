@@ -29,6 +29,7 @@ func TestRegistryRegisterGetUnregister(t *testing.T) {
 	got, err := reg.Get(ctx, "missing")
 	require.NoError(t, err)
 	require.Nil(t, got)
+	require.Empty(t, reg.GetAllAgents())
 
 	sess := stubSession{id: "agent-1"}
 	require.NoError(t, reg.Register(ctx, sess))
@@ -36,11 +37,13 @@ func TestRegistryRegisterGetUnregister(t *testing.T) {
 	got, err = reg.Get(ctx, "agent-1")
 	require.NoError(t, err)
 	require.Equal(t, "agent-1", got.ID())
+	require.Equal(t, []string{"agent-1"}, reg.GetAllAgents())
 
 	require.NoError(t, reg.Unregister(ctx, "agent-1"))
 	got, err = reg.Get(ctx, "agent-1")
 	require.NoError(t, err)
 	require.Nil(t, got)
+	require.Empty(t, reg.GetAllAgents())
 }
 
 func TestRegistryDuplicateRegisterOverwrites(t *testing.T) {

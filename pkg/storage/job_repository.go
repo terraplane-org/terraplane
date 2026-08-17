@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -112,14 +113,39 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
-func (r *jobRepository) GetPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string) (*models.Job, error) {
-	var job models.Job
-	err := r.db.pool.WithContext(ctx).First(&job, "repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?", repo, prNumber, stackName, action, models.JobStatusPending).Error
+func (r *jobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
+	if len(agents) == 0 {
+		return nil, nil
+	}
+
+	var jobs []*models.Job
+	err := r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("agent_id IN ? AND status = ?", agents, models.JobStatusPending).
+			Order("created_at ASC, id ASC").
+			Find(&jobs)
+		if result.Error != nil {
+			return result.Error
+		}
+		if len(jobs) == 0 {
+			return nil
+		}
+
+		for _, job := range jobs {
+			job.Status = status
+			job.LeaseExpiresAt = leaseExpiresAt
+			if err := tx.Save(job).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &job, nil
+	return jobs, nil
 }
+
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }
