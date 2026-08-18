@@ -53,6 +53,10 @@ func NewHandler(
 	h.mux.HandleFunc("GET /health", h.healthCheck)
 	h.mux.HandleFunc("POST /scm/webhook", h.scmWebhookHandler)
 	h.mux.HandleFunc("GET /ws", h.websocketHandler)
+	h.mux.HandleFunc("POST /agent/jobs/claim", h.agentJobClaimHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/heartbeat", h.agentHeartbeatHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/ack", h.agentJobAckHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/result", h.agentJobResultHandler)
 
 	return h
 }
@@ -148,6 +152,22 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if err := session.Run(r.Context()); err != nil {
 		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
 	}
+}
+
+func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("Agent job claim handler called")
+}
+
+func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("Agent heartbeat handler called")
+}
+
+func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("Agent job ack handler called")
+}
+
+func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("Agent job result handler called")
 }
 
 func (h *handler) validateWebsocketToken(r *http.Request) bool {
