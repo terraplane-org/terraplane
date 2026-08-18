@@ -149,7 +149,7 @@ Image tags follow release semver (`ghcr.io/terraplane-org/terraplane:<version>`)
 | imagePullSecrets | list | `[]` | Optional image pull secrets |
 | commonLabels | object | `{}` | Extra labels applied to all resources |
 | orchestrator.enabled | bool | `true` | Deploy the orchestrator. Set false for an agents-only release. |
-| orchestrator.replicaCount | int | `1` | Number of orchestrator replicas (keep at 1; sessions are in-memory) |
+| orchestrator.replicaCount | int | `1` | Number of orchestrator replicas. Each replica dispatches to agents connected to it. |
 | orchestrator.migrate.enabled | bool | `true` | Run `terraplane db migrate` as an initContainer before the orchestrator starts |
 | orchestrator.serviceAccountName | string | `""` | Existing ServiceAccount name (chart does not create it). Omit to use the namespace default. |
 | orchestrator.env | object | `{}` | Extra environment variables for the orchestrator (non-secret config) |

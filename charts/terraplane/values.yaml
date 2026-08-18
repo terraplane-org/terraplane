@@ -21,7 +21,7 @@ commonLabels: {}
 orchestrator:
   # -- Deploy the orchestrator. Set false for an agents-only release (typical: public orch, private agents).
   enabled: true
-  # -- Number of orchestrator replicas (keep at 1; sessions are in-memory)
+  # -- Number of orchestrator replicas
   replicaCount: 1
   migrate:
     # -- Run `terraplane db migrate` as an initContainer before the orchestrator starts
