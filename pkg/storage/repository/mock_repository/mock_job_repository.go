@@ -100,6 +100,20 @@ func (mr *MockJobRepositoryMockRecorder) DeleteByRepoPRAndStacks(ctx, repo, prNu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByRepoPRAndStacks", reflect.TypeOf((*MockJobRepository)(nil).DeleteByRepoPRAndStacks), ctx, repo, prNumber, stackNames)
 }
 
+// FailClaimedJob mocks base method.
+func (m *MockJobRepository) FailClaimedJob(ctx context.Context, jobID, errMsg string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailClaimedJob", ctx, jobID, errMsg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailClaimedJob indicates an expected call of FailClaimedJob.
+func (mr *MockJobRepositoryMockRecorder) FailClaimedJob(ctx, jobID, errMsg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).FailClaimedJob), ctx, jobID, errMsg)
+}
+
 // Get mocks base method.
 func (m *MockJobRepository) Get(ctx context.Context, jobID string) (*models.Job, error) {
 	m.ctrl.T.Helper()
@@ -113,6 +127,35 @@ func (m *MockJobRepository) Get(ctx context.Context, jobID string) (*models.Job,
 func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
+}
+
+// ReapExpiredClaims mocks base method.
+func (m *MockJobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredClaims", ctx, now)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReapExpiredClaims indicates an expected call of ReapExpiredClaims.
+func (mr *MockJobRepositoryMockRecorder) ReapExpiredClaims(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredClaims", reflect.TypeOf((*MockJobRepository)(nil).ReapExpiredClaims), ctx, now)
+}
+
+// ReleaseClaimedJob mocks base method.
+func (m *MockJobRepository) ReleaseClaimedJob(ctx context.Context, jobID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseClaimedJob", ctx, jobID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseClaimedJob indicates an expected call of ReleaseClaimedJob.
+func (mr *MockJobRepositoryMockRecorder) ReleaseClaimedJob(ctx, jobID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).ReleaseClaimedJob), ctx, jobID)
 }
 
 // Update mocks base method.
