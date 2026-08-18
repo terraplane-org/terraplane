@@ -28,6 +28,7 @@ type manager struct {
 	server              webserver.Server
 	schema              SchemaChecker
 	sharedAuthToken     string
+	dispatcher          Dispatcher
 }
 
 func (o *manager) Start(ctx context.Context) error {
@@ -53,6 +54,13 @@ func (o *manager) Start(ctx context.Context) error {
 	})
 
 	group.Go(func() error {
+		o.logger.Debug("Starting dispatcher")
+
+		err := o.dispatcher.Start(ctx)
+		return err
+	})
+
+	group.Go(func() error {
 		<-ctx.Done()
 
 		shutdownCtx, cancel := context.WithTimeout(
@@ -61,7 +69,8 @@ func (o *manager) Start(ctx context.Context) error {
 		)
 		defer cancel()
 
-		return o.server.Shutdown(shutdownCtx)
+		_ = o.server.Shutdown(shutdownCtx)
+		return o.dispatcher.Shutdown(shutdownCtx)
 	})
 
 	if err := group.Wait(); err != nil {
@@ -72,12 +81,13 @@ func (o *manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func NewManager(config *config.Config, logger log.Logger, server webserver.Server, schema SchemaChecker) Manager {
+func NewManager(config *config.Config, logger log.Logger, server webserver.Server, schema SchemaChecker, dispatcher Dispatcher) Manager {
 	return &manager{
 		serverShutdownTimer: config.ServerShutdownTimer,
 		logger:              logger,
 		server:              server,
 		schema:              schema,
 		sharedAuthToken:     config.SharedAuthToken,
+		dispatcher:          dispatcher,
 	}
 }

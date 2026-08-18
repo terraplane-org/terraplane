@@ -29,8 +29,6 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		storage.New,
 		storage.NewJobRepository,
 		storage.NewLockRepository,
-		services.NewPlanService,
-		services.NewApplyService,
 		github.NewClient,
 		github.NewProvider,
 		agentsession.NewRegistry,
@@ -40,6 +38,8 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		webserver.NewServer,
 		orchestrator.NewManager,
 		github.NewPublisher,
+		services.NewJobService,
+		orchestrator.NewDispatcher,
 		wire.Bind(new(orchestrator.SchemaChecker), new(*storage.DB)),
 	)
 	return nil, nil

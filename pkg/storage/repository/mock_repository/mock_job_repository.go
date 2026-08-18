@@ -12,6 +12,7 @@ package mock_repository
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/xyzjace/terraplane/pkg/storage/models"
 	gomock "go.uber.org/mock/gomock"
@@ -39,6 +40,21 @@ func NewMockJobRepository(ctrl *gomock.Controller) *MockJobRepository {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockJobRepository) EXPECT() *MockJobRepositoryMockRecorder {
 	return m.recorder
+}
+
+// ClaimPendingJobsForAgents mocks base method.
+func (m *MockJobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimPendingJobsForAgents", ctx, agents, status, leaseExpiresAt)
+	ret0, _ := ret[0].([]*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimPendingJobsForAgents indicates an expected call of ClaimPendingJobsForAgents.
+func (mr *MockJobRepositoryMockRecorder) ClaimPendingJobsForAgents(ctx, agents, status, leaseExpiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPendingJobsForAgents", reflect.TypeOf((*MockJobRepository)(nil).ClaimPendingJobsForAgents), ctx, agents, status, leaseExpiresAt)
 }
 
 // Create mocks base method.
@@ -84,6 +100,20 @@ func (mr *MockJobRepositoryMockRecorder) DeleteByRepoPRAndStacks(ctx, repo, prNu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByRepoPRAndStacks", reflect.TypeOf((*MockJobRepository)(nil).DeleteByRepoPRAndStacks), ctx, repo, prNumber, stackNames)
 }
 
+// FailClaimedJob mocks base method.
+func (m *MockJobRepository) FailClaimedJob(ctx context.Context, jobID, errMsg string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailClaimedJob", ctx, jobID, errMsg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailClaimedJob indicates an expected call of FailClaimedJob.
+func (mr *MockJobRepositoryMockRecorder) FailClaimedJob(ctx, jobID, errMsg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).FailClaimedJob), ctx, jobID, errMsg)
+}
+
 // Get mocks base method.
 func (m *MockJobRepository) Get(ctx context.Context, jobID string) (*models.Job, error) {
 	m.ctrl.T.Helper()
@@ -99,6 +129,35 @@ func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
 }
 
+// ReapExpiredClaims mocks base method.
+func (m *MockJobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapExpiredClaims", ctx, now)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReapExpiredClaims indicates an expected call of ReapExpiredClaims.
+func (mr *MockJobRepositoryMockRecorder) ReapExpiredClaims(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredClaims", reflect.TypeOf((*MockJobRepository)(nil).ReapExpiredClaims), ctx, now)
+}
+
+// ReleaseClaimedJob mocks base method.
+func (m *MockJobRepository) ReleaseClaimedJob(ctx context.Context, jobID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseClaimedJob", ctx, jobID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseClaimedJob indicates an expected call of ReleaseClaimedJob.
+func (mr *MockJobRepositoryMockRecorder) ReleaseClaimedJob(ctx, jobID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).ReleaseClaimedJob), ctx, jobID)
+}
+
 // Update mocks base method.
 func (m *MockJobRepository) Update(ctx context.Context, job *models.Job) error {
 	m.ctrl.T.Helper()
@@ -111,4 +170,19 @@ func (m *MockJobRepository) Update(ctx context.Context, job *models.Job) error {
 func (mr *MockJobRepositoryMockRecorder) Update(ctx, job any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockJobRepository)(nil).Update), ctx, job)
+}
+
+// UpsertPendingJob mocks base method.
+func (m *MockJobRepository) UpsertPendingJob(ctx context.Context, repo string, prNumber int, stackName, action string, payload map[string]any, agent string) (*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPendingJob", ctx, repo, prNumber, stackName, action, payload, agent)
+	ret0, _ := ret[0].(*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertPendingJob indicates an expected call of UpsertPendingJob.
+func (mr *MockJobRepositoryMockRecorder) UpsertPendingJob(ctx, repo, prNumber, stackName, action, payload, agent any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPendingJob", reflect.TypeOf((*MockJobRepository)(nil).UpsertPendingJob), ctx, repo, prNumber, stackName, action, payload, agent)
 }

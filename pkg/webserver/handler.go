@@ -10,7 +10,6 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/auth"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
-	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
@@ -27,10 +26,8 @@ type handler struct {
 	mux             *http.ServeMux
 	sessionRegistry agentsession.Registry
 	sessionFactory  agentsession.Factory
-	planService     services.PlanService
-	applyService    services.ApplyService
-	unlockService   services.UnlockService
 	sharedAuthToken string
+	jobService      services.JobService
 }
 
 func NewHandler(
@@ -39,9 +36,7 @@ func NewHandler(
 	scmPublisher scm.Publisher,
 	sessionRegistry agentsession.Registry,
 	sessionFactory agentsession.Factory,
-	planService services.PlanService,
-	applyService services.ApplyService,
-	unlockService services.UnlockService,
+	jobService services.JobService,
 	config *config.Config,
 ) http.Handler {
 	h := &handler{
@@ -51,10 +46,8 @@ func NewHandler(
 		scmPublisher:    scmPublisher,
 		sessionRegistry: sessionRegistry,
 		sessionFactory:  sessionFactory,
-		planService:     planService,
-		applyService:    applyService,
-		unlockService:   unlockService,
 		sharedAuthToken: config.SharedAuthToken,
+		jobService:      jobService,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -81,17 +74,15 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, webhook := range webhooks {
 
-		cmd := command.ParseWebhook(&webhook)
-		if cmd.Kind == command.KindUnknown {
-			h.logger.Debug(
-				"Ignoring pull request comment that is not a terraplane command",
+		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
+			h.logger.Error(
+				"Failed to create pending jobs from webhook",
 				"repo", webhook.RepositorySlug,
 				"pr", webhook.PRNumber,
-				"user", webhook.TriggeringUser,
-				"comment", webhook.FullCommand,
+				"error", err,
 			)
-			continue
 		}
+
 		// TODO: Is this really the appropriate place to react to the comment?
 		if err := h.scmPublisher.AcknowledgeComment(
 			r.Context(),
@@ -107,84 +98,9 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 				"error", err,
 			)
 		}
-		h.handleCommand(r.Context(), cmd)
 	}
 
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
-}
-
-func (h *handler) handleCommand(ctx context.Context, cmd command.Command) {
-	switch cmd.Kind {
-	case command.KindPlan:
-		h.logger.Info(
-			"Received terraplane plan command",
-			"repo", cmd.Plan.Repo,
-			"pr", cmd.Plan.PRNumber,
-			"user", cmd.Plan.TriggerUser,
-			"commit", cmd.Plan.CommitSHA,
-			"stacks", cmd.Plan.Stacks,
-			"environments", cmd.Plan.Environments,
-			"plan_flags", cmd.Plan.PlanFlags,
-			"comment", cmd.Plan.RawComment,
-		)
-		plan := cmd.Plan
-		go func() {
-			if err := h.planService.RunPlan(context.WithoutCancel(ctx), plan); err != nil {
-				h.logger.Error(
-					"Failed to run terraplane plan",
-					"repo", plan.Repo,
-					"pr", plan.PRNumber,
-					"error", err,
-				)
-			}
-		}()
-	case command.KindApply:
-		h.logger.Info(
-			"Received terraplane apply command",
-			"repo", cmd.Apply.Repo,
-			"pr", cmd.Apply.PRNumber,
-			"user", cmd.Apply.TriggerUser,
-			"commit", cmd.Apply.CommitSHA,
-			"stacks", cmd.Apply.Stacks,
-			"environments", cmd.Apply.Environments,
-			"comment", cmd.Apply.RawComment,
-		)
-		apply := cmd.Apply
-		go func() {
-			if err := h.applyService.RunApply(context.WithoutCancel(ctx), apply); err != nil {
-				h.logger.Error(
-					"Failed to run terraplane apply",
-					"repo", apply.Repo,
-					"pr", apply.PRNumber,
-					"error", err,
-				)
-			}
-		}()
-	case command.KindUnlock:
-		h.logger.Info(
-			"Received terraplane unlock command",
-			"repo", cmd.Unlock.Repo,
-			"pr", cmd.Unlock.PRNumber,
-			"user", cmd.Unlock.TriggerUser,
-			"commit", cmd.Unlock.CommitSHA,
-			"stacks", cmd.Unlock.Stacks,
-			"environments", cmd.Unlock.Environments,
-			"comment", cmd.Unlock.RawComment,
-		)
-		unlock := cmd.Unlock
-		go func() {
-			if err := h.unlockService.RunUnlock(context.WithoutCancel(ctx), unlock); err != nil {
-				h.logger.Error(
-					"Failed to run terraplane unlock",
-					"repo", unlock.Repo,
-					"pr", unlock.PRNumber,
-					"error", err,
-				)
-			}
-		}()
-	default:
-		h.logger.Warn("Received terraplane command with unhandled kind", "kind", cmd.Kind)
-	}
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {

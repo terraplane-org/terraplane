@@ -8,15 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/xyzjace/terraplane/config"
-	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 )
-
-func TestHandleCommandUnhandledKind(t *testing.T) {
-	// Intention: unknown kinds after parse are warned and ignored (no panic / no service call).
-	h := &handler{logger: log.Noop()}
-	h.handleCommand(context.Background(), command.Command{Kind: command.Kind("weird")})
-}
 
 func TestServerStartReturnsNilOnErrServerClosed(t *testing.T) {
 	cfg := &config.Config{
@@ -37,4 +30,15 @@ func TestServerStartReturnsNilOnErrServerClosed(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Start after Shutdown")
 	}
+}
+
+func TestServerStartListenError(t *testing.T) {
+	cfg := &config.Config{
+		OrchestratorListenAddress: "127.0.0.1",
+		OrchestratorListenPort:    -1,
+	}
+	srv := NewServer(cfg, log.Noop(), nil)
+
+	err := srv.Start(context.Background())
+	require.Error(t, err)
 }
