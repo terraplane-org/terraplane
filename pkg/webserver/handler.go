@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -160,7 +161,26 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Agent job claim handler called")
+	var payload agentJobClaimPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent job claim request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent job claim request body")
+		return
+	}
+
+	cmd, err := h.jobService.ClaimPendingJob(r.Context(), payload.AgentID)
+	if err != nil {
+		h.logger.Error("Failed to claim pending job", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to claim pending job")
+		return
+	}
+	if cmd == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(agentJobClaimResponse{Command: *cmd})
 }
 
 func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {

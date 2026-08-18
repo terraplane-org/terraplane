@@ -113,19 +113,19 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
-func (r *jobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
+func (r *jobRepository) ClaimPendingJobForAgent(ctx context.Context, agentID string, status models.JobStatus, leaseExpiresAt *time.Time) (*models.Job, error) {
 	var jobs []*models.Job
 	err := r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("status = ?", models.JobStatusPending)
-		if len(agents) == 0 {
+		if agentID == "" {
 			// Unlock is DB-only; claim it even when no agent websocket is local.
 			q = q.Where("action = ?", models.JobActionUnlock)
 		} else {
 			q = q.Where(
-				"action = ? OR (agent_id IN ? AND NOT EXISTS (SELECT 1 FROM jobs AS busy WHERE busy.repo = jobs.repo AND busy.stack_name = jobs.stack_name AND busy.status IN ?))",
-				models.JobActionUnlock,
-				agents,
+				"action IN ? AND agent_id = ? AND NOT EXISTS (SELECT 1 FROM jobs AS busy WHERE busy.repo = jobs.repo AND busy.stack_name = jobs.stack_name AND busy.status IN ?)",
+				[]models.JobAction{models.JobActionPlan, models.JobActionApply},
+				agentID,
 				[]models.JobStatus{models.JobStatusClaimed, models.JobStatusRunning},
 			)
 		}
@@ -138,19 +138,17 @@ func (r *jobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []
 			return nil
 		}
 
-		for _, job := range jobs {
-			job.Status = status
-			job.LeaseExpiresAt = leaseExpiresAt
-			if err := tx.Save(job).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		jobs[0].Status = status
+		jobs[0].LeaseExpiresAt = leaseExpiresAt
+		return tx.Save(jobs[0]).Error
 	})
 	if err != nil {
 		return nil, err
 	}
-	return jobs, nil
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	return jobs[0], nil
 }
 
 func (r *jobRepository) ReleaseClaimedJob(ctx context.Context, jobID string) error {

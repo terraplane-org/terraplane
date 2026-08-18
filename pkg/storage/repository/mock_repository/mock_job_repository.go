@@ -42,19 +42,19 @@ func (m *MockJobRepository) EXPECT() *MockJobRepositoryMockRecorder {
 	return m.recorder
 }
 
-// ClaimPendingJobsForAgents mocks base method.
-func (m *MockJobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
+// ClaimPendingJobForAgent mocks base method.
+func (m *MockJobRepository) ClaimPendingJobForAgent(ctx context.Context, agentID string, status models.JobStatus, leaseExpiresAt *time.Time) (*models.Job, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimPendingJobsForAgents", ctx, agents, status, leaseExpiresAt)
-	ret0, _ := ret[0].([]*models.Job)
+	ret := m.ctrl.Call(m, "ClaimPendingJobForAgent", ctx, agentID, status, leaseExpiresAt)
+	ret0, _ := ret[0].(*models.Job)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ClaimPendingJobsForAgents indicates an expected call of ClaimPendingJobsForAgents.
-func (mr *MockJobRepositoryMockRecorder) ClaimPendingJobsForAgents(ctx, agents, status, leaseExpiresAt any) *gomock.Call {
+// ClaimPendingJobForAgent indicates an expected call of ClaimPendingJobForAgent.
+func (mr *MockJobRepositoryMockRecorder) ClaimPendingJobForAgent(ctx, agentID, status, leaseExpiresAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPendingJobsForAgents", reflect.TypeOf((*MockJobRepository)(nil).ClaimPendingJobsForAgents), ctx, agents, status, leaseExpiresAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPendingJobForAgent", reflect.TypeOf((*MockJobRepository)(nil).ClaimPendingJobForAgent), ctx, agentID, status, leaseExpiresAt)
 }
 
 // Create mocks base method.

@@ -20,7 +20,7 @@ const applyLockWorkspace = "default"
 
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
-	ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error)
+	ClaimPendingJob(ctx context.Context, agentID string) (*command.Command, error)
 	ReleaseClaim(ctx context.Context, jobID string) error
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context) error
@@ -169,25 +169,24 @@ func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook,
 	return false, nil
 }
 
-func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error) {
+func (j *jobService) ClaimPendingJob(ctx context.Context, agentID string) (*command.Command, error) {
 	expires := time.Now().Add(j.jobLease)
-	jobs, err := j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
+	job, err := j.jobRepository.ClaimPendingJobForAgent(ctx, agentID, models.JobStatusClaimed, &expires)
 	if err != nil {
 		return nil, err
 	}
-
-	commands := make([]command.Command, 0, len(jobs))
-	for _, job := range jobs {
-		cmd, err := j.commandFromJob(job)
-		if err != nil {
-			if failErr := j.jobRepository.FailClaimedJob(ctx, job.ID, err.Error()); failErr != nil {
-				return nil, fmt.Errorf("%w (also failed to mark job failed: %v)", err, failErr)
-			}
-			return nil, err
-		}
-		commands = append(commands, cmd)
+	if job == nil {
+		return nil, nil
 	}
-	return commands, nil
+
+	cmd, err := j.commandFromJob(job)
+	if err != nil {
+		if failErr := j.jobRepository.FailClaimedJob(ctx, job.ID, err.Error()); failErr != nil {
+			return nil, fmt.Errorf("%w (also failed to mark job failed: %v)", err, failErr)
+		}
+		return nil, err
+	}
+	return &cmd, nil
 }
 
 func (j *jobService) ReleaseClaim(ctx context.Context, jobID string) error {
