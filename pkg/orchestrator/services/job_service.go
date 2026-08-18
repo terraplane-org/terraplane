@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,29 +16,37 @@ import (
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
+const applyLockWorkspace = "default"
+
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
 	ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error)
+	ReleaseClaim(ctx context.Context, jobID string) error
+	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
+	ReapExpiredClaims(ctx context.Context) error
 }
 
 type jobService struct {
-	logger        log.Logger
-	jobRepository repository.JobRepository
-	scmProvider   scm.Provider
-	jobLease      time.Duration
+	logger         log.Logger
+	jobRepository  repository.JobRepository
+	lockRepository repository.LockRepository
+	scmProvider    scm.Provider
+	jobLease       time.Duration
 }
 
 func NewJobService(
 	logger log.Logger,
 	jobRepository repository.JobRepository,
+	lockRepository repository.LockRepository,
 	scmProvider scm.Provider,
 	config *config.Config,
 ) JobService {
 	return &jobService{
-		logger:        logger,
-		jobRepository: jobRepository,
-		scmProvider:   scmProvider,
-		jobLease:      config.OrchestratorJobLease,
+		logger:         logger,
+		jobRepository:  jobRepository,
+		lockRepository: lockRepository,
+		scmProvider:    scmProvider,
+		jobLease:       config.OrchestratorJobLease,
 	}
 }
 
@@ -54,13 +63,11 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return nil
 	}
 
-	// Load the terraplane config from the repository
 	file, err := j.scmProvider.GetFile("terraplane.yaml", webhook.CommitSHA, webhook.RepositorySlug)
 	if err != nil {
 		return fmt.Errorf("failed to fetch terraplane.yaml for repository %s at commit %s: %w", webhook.RepositorySlug, webhook.CommitSHA, err)
 	}
 
-	// Parse the terraplane config
 	config, err := terraplaneconfig.ParseConfigFile([]byte(file))
 	if err != nil {
 		return fmt.Errorf("failed to parse terraplane.yaml for repository %s at commit %s: %w", webhook.RepositorySlug, webhook.CommitSHA, err)
@@ -73,15 +80,25 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 	}
 
-	// Create pending jobs for each stack
 	for _, stack := range resolvedStacks {
-		agent := stack.Agent
-		// Resolve the payload for the job
+		if action == string(models.JobActionApply) {
+			ok, err := j.acquireApplyLock(ctx, webhook, stack)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+		}
+
 		payload := map[string]interface{}{
 			"trigger_user": webhook.TriggeringUser,
 			"commit_sha":   webhook.CommitSHA,
 			"stack_name":   stack.Name,
 			"dir":          stack.Dir,
+		}
+		if action == string(models.JobActionPlan) {
+			payload["plan_flags"] = cmd.Plan.PlanFlags
 		}
 
 		job, err := j.jobRepository.UpsertPendingJob(
@@ -90,7 +107,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			stack.Name,
 			action,
 			payload,
-			agent,
+			stack.Agent,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to upsert pending job for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
@@ -102,7 +119,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			"pr", webhook.PRNumber,
 			"stack", stack.Name,
 			"action", action,
-			"agent", agent,
+			"agent", stack.Agent,
 			"job_id", job.ID,
 		)
 	}
@@ -110,26 +127,86 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 	return nil
 }
 
-func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error) {
-	if len(agents) == 0 {
-		return nil, nil
+func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook, stack terraplaneconfig.ResolvedStack) (bool, error) {
+	err := j.lockRepository.Create(ctx, &models.ProjectLock{
+		Repo:      webhook.RepositorySlug,
+		StackName: stack.Name,
+		Workspace: applyLockWorkspace,
+		Dir:       stack.Dir,
+		CommitSHA: webhook.CommitSHA,
+		LockedBy:  webhook.TriggeringUser,
+		PRNumber:  int32(webhook.PRNumber),
+	})
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, repository.ErrLockExists) {
+		return false, fmt.Errorf("failed to create lock for stack %q in repository %s: %w", stack.Name, webhook.RepositorySlug, err)
 	}
 
+	existing, getErr := j.lockRepository.Get(ctx, webhook.RepositorySlug, stack.Name, applyLockWorkspace)
+	if getErr != nil {
+		return false, fmt.Errorf("failed to fetch lock for stack %q in repository %s: %w", stack.Name, webhook.RepositorySlug, getErr)
+	}
+	if existing != nil && existing.PRNumber == int32(webhook.PRNumber) {
+		return true, nil
+	}
+
+	lockedPR := int32(0)
+	lockedBy := ""
+	if existing != nil {
+		lockedPR = existing.PRNumber
+		lockedBy = existing.LockedBy
+	}
+	j.logger.Warn(
+		"Skipping stack because it is locked",
+		"repo", webhook.RepositorySlug,
+		"pr", webhook.PRNumber,
+		"stack", stack.Name,
+		"locked_pr", lockedPR,
+		"locked_by", lockedBy,
+	)
+	return false, nil
+}
+
+func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error) {
 	expires := time.Now().Add(j.jobLease)
 	jobs, err := j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
 	if err != nil {
 		return nil, err
 	}
 
-	// Rehydrate jobs in to command objects
-	commands := make([]command.Command, len(jobs))
-	for i, job := range jobs {
-		commands[i], err = j.commandFromJob(job)
+	commands := make([]command.Command, 0, len(jobs))
+	for _, job := range jobs {
+		cmd, err := j.commandFromJob(job)
 		if err != nil {
+			if failErr := j.jobRepository.FailClaimedJob(ctx, job.ID, err.Error()); failErr != nil {
+				return nil, fmt.Errorf("%w (also failed to mark job failed: %v)", err, failErr)
+			}
 			return nil, err
 		}
+		commands = append(commands, cmd)
 	}
 	return commands, nil
+}
+
+func (j *jobService) ReleaseClaim(ctx context.Context, jobID string) error {
+	return j.jobRepository.ReleaseClaimedJob(ctx, jobID)
+}
+
+func (j *jobService) FailClaimedJob(ctx context.Context, jobID, errMsg string) error {
+	return j.jobRepository.FailClaimedJob(ctx, jobID, errMsg)
+}
+
+func (j *jobService) ReapExpiredClaims(ctx context.Context) error {
+	n, err := j.jobRepository.ReapExpiredClaims(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		j.logger.Info("Reaped expired claimed jobs", "count", n)
+	}
+	return nil
 }
 
 func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
@@ -153,6 +230,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		plan.TriggerUser = triggerUser
 		plan.Agent = job.AgentID
 		plan.JobID = job.ID
+		plan.Dir = job.Dir
 		return command.Command{Kind: command.KindPlan, Plan: plan}, nil
 	case models.JobActionApply:
 		apply := command.ApplyCommand{Stacks: stacks}
@@ -162,8 +240,9 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		apply.TriggerUser = triggerUser
 		apply.Agent = job.AgentID
 		apply.JobID = job.ID
+		apply.Dir = job.Dir
 		return command.Command{Kind: command.KindApply, Apply: apply}, nil
-	case models.JobAction("unlock"):
+	case models.JobActionUnlock:
 		unlock := command.UnlockCommand{Stacks: stacks}
 		unlock.Repo = job.Repo
 		unlock.PRNumber = int(job.PRNumber)
@@ -171,6 +250,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		unlock.TriggerUser = triggerUser
 		unlock.Agent = job.AgentID
 		unlock.JobID = job.ID
+		unlock.Dir = job.Dir
 		return command.Command{Kind: command.KindUnlock, Unlock: unlock}, nil
 	default:
 		return command.Command{}, fmt.Errorf("unknown job action: %s", job.Action)
@@ -208,17 +288,17 @@ func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]strin
 	if cmd.Kind == command.KindPlan {
 		stacks = cmd.Plan.Stacks
 		environments = cmd.Plan.Environments
-		action = "plan"
+		action = string(models.JobActionPlan)
 	}
 	if cmd.Kind == command.KindApply {
 		stacks = cmd.Apply.Stacks
 		environments = cmd.Apply.Environments
-		action = "apply"
+		action = string(models.JobActionApply)
 	}
 	if cmd.Kind == command.KindUnlock {
 		stacks = cmd.Unlock.Stacks
 		environments = cmd.Unlock.Environments
-		action = "unlock"
+		action = string(models.JobActionUnlock)
 	}
 	return stacks, environments, action
 }

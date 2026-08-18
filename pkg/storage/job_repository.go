@@ -114,16 +114,23 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 }
 
 func (r *jobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
-	if len(agents) == 0 {
-		return nil, nil
-	}
-
 	var jobs []*models.Job
 	err := r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("agent_id IN ? AND status = ?", agents, models.JobStatusPending).
-			Order("created_at ASC, id ASC").
-			Find(&jobs)
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("status = ?", models.JobStatusPending)
+		if len(agents) == 0 {
+			// Unlock is DB-only; claim it even when no agent websocket is local.
+			q = q.Where("action = ?", models.JobActionUnlock)
+		} else {
+			q = q.Where(
+				"action = ? OR (agent_id IN ? AND NOT EXISTS (SELECT 1 FROM jobs AS busy WHERE busy.repo = jobs.repo AND busy.stack_name = jobs.stack_name AND busy.status IN ?))",
+				models.JobActionUnlock,
+				agents,
+				[]models.JobStatus{models.JobStatusClaimed, models.JobStatusRunning},
+			)
+		}
+
+		result := q.Order("created_at ASC, id ASC").Limit(1).Find(&jobs)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -144,6 +151,38 @@ func (r *jobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []
 		return nil, err
 	}
 	return jobs, nil
+}
+
+func (r *jobRepository) ReleaseClaimedJob(ctx context.Context, jobID string) error {
+	return r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where("id = ? AND status = ?", jobID, models.JobStatusClaimed).
+		Updates(map[string]interface{}{
+			"status":           models.JobStatusPending,
+			"lease_expires_at": gorm.Expr("NULL"),
+		}).Error
+}
+
+func (r *jobRepository) FailClaimedJob(ctx context.Context, jobID, errMsg string) error {
+	return r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where("id = ? AND status = ?", jobID, models.JobStatusClaimed).
+		Updates(map[string]interface{}{
+			"status":           models.JobStatusFailed,
+			"error_msg":        errMsg,
+			"lease_expires_at": gorm.Expr("NULL"),
+		}).Error
+}
+
+func (r *jobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (int, error) {
+	result := r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where("status = ? AND lease_expires_at IS NOT NULL AND lease_expires_at < ?", models.JobStatusClaimed, now).
+		Updates(map[string]interface{}{
+			"status":           models.JobStatusPending,
+			"lease_expires_at": gorm.Expr("NULL"),
+		})
+	return int(result.RowsAffected), result.Error
 }
 
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {

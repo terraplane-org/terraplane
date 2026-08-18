@@ -42,6 +42,11 @@ func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) er
 func (s *stubJobs) ClaimPendingJobs(context.Context, []string) ([]command.Command, error) {
 	return nil, nil
 }
+func (s *stubJobs) ReleaseClaim(context.Context, string) error { return nil }
+func (s *stubJobs) FailClaimedJob(context.Context, string, string) error {
+	return nil
+}
+func (s *stubJobs) ReapExpiredClaims(context.Context) error { return nil }
 
 type stubFactory struct {
 	session agentsession.Session

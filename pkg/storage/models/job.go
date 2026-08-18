@@ -15,8 +15,9 @@ const (
 type JobAction string
 
 const (
-	JobActionPlan  JobAction = "plan"
-	JobActionApply JobAction = "apply"
+	JobActionPlan   JobAction = "plan"
+	JobActionApply  JobAction = "apply"
+	JobActionUnlock JobAction = "unlock"
 )
 
 // Job tracks a unit of agent work (plan/apply) for durable enqueue and claim.

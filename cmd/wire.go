@@ -29,8 +29,6 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		storage.New,
 		storage.NewJobRepository,
 		storage.NewLockRepository,
-		services.NewPlanService,
-		services.NewApplyService,
 		github.NewClient,
 		github.NewProvider,
 		agentsession.NewRegistry,

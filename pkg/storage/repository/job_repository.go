@@ -14,6 +14,9 @@ type JobRepository interface {
 	Get(ctx context.Context, jobID string) (*models.Job, error)
 	ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error)
 	UpsertPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string, payload map[string]interface{}, agent string) (*models.Job, error)
+	ReleaseClaimedJob(ctx context.Context, jobID string) error
+	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
+	ReapExpiredClaims(ctx context.Context, now time.Time) (int, error)
 	Update(ctx context.Context, job *models.Job) error
 	Delete(ctx context.Context, jobID string) error
 	DeleteByRepoPRAndStacks(ctx context.Context, repo string, prNumber int, stackNames []string) (int, error)
