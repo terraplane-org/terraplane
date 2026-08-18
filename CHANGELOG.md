@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+
+## [0.2.0] - 2026-08-18
+
+### Changed
+- Orchestrators are now able to be "HA". They periodically poll the DB for enqueued jobs for connected agents and dispatch them. As long as an agent is connected to an orchestrator it will receive commands.
+
+
 ## [0.1.4] - 2026-08-10
 
 ### Changed
