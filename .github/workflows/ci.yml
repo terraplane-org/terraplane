@@ -167,6 +167,6 @@ jobs:
           helm template terraplane-agents charts/terraplane \
             --set orchestrator.enabled=false \
             --set image.tag=ci \
-            --set agentDefaults.orchestratorURL=wss://terraplane.example.com/ws \
+            --set agentDefaults.orchestratorURL=https://terraplane.example.com \
             --set 'agents[0].name=agent-dev' \
             >/dev/null

@@ -1,31 +1,25 @@
 package webserver
 
 import (
-	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
-	"time"
 
-	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/auth"
-	"github.com/xyzjace/terraplane/pkg/agentsession"
+	"github.com/xyzjace/terraplane/pkg/agentapi"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
-	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
-	"github.com/xyzjace/terraplane/pkg/wsproto"
+	"github.com/xyzjace/terraplane/pkg/storage/repository"
 )
-
-const agentHelloTimeout = 10 * time.Second
 
 type handler struct {
 	logger          log.Logger
 	scmProvider     scm.Provider
 	scmPublisher    scm.Publisher
 	mux             *http.ServeMux
-	sessionRegistry agentsession.Registry
-	sessionFactory  agentsession.Factory
 	sharedAuthToken string
 	jobService      services.JobService
 }
@@ -34,8 +28,6 @@ func NewHandler(
 	logger log.Logger,
 	scmProvider scm.Provider,
 	scmPublisher scm.Publisher,
-	sessionRegistry agentsession.Registry,
-	sessionFactory agentsession.Factory,
 	jobService services.JobService,
 	config *config.Config,
 ) http.Handler {
@@ -44,15 +36,16 @@ func NewHandler(
 		mux:             http.NewServeMux(),
 		scmProvider:     scmProvider,
 		scmPublisher:    scmPublisher,
-		sessionRegistry: sessionRegistry,
-		sessionFactory:  sessionFactory,
 		sharedAuthToken: config.SharedAuthToken,
 		jobService:      jobService,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
 	h.mux.HandleFunc("POST /scm/webhook", h.scmWebhookHandler)
-	h.mux.HandleFunc("GET /ws", h.websocketHandler)
+	h.mux.HandleFunc("POST /agent/jobs/poll", h.agentPollHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/heartbeat", h.agentHeartbeatHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/ack", h.agentAckHandler)
+	h.mux.HandleFunc("POST /agent/jobs/{id}/result", h.agentResultHandler)
 
 	return h
 }
@@ -73,7 +66,6 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, webhook := range webhooks {
-
 		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
 			h.logger.Error(
 				"Failed to create pending jobs from webhook",
@@ -83,7 +75,6 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 
-		// TODO: Is this really the appropriate place to react to the comment?
 		if err := h.scmPublisher.AcknowledgeComment(
 			r.Context(),
 			webhook.RepositorySlug,
@@ -103,66 +94,89 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, "Webhook parsed successfully")
 }
 
-func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	if !h.validateWebsocketToken(r) {
-		h.logger.Warn("Rejected websocket connection with invalid auth token", "remote_addr", r.RemoteAddr)
+func (h *handler) agentPollHandler(w http.ResponseWriter, r *http.Request) {
+	agentID, ok := h.agentAuth(w, r)
+	if !ok {
+		return
+	}
+
+	job, err := h.jobService.PollJob(r.Context(), agentID)
+	if err != nil {
+		h.logger.Error("Failed to poll job", "agent_id", agentID, "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to poll job")
+		return
+	}
+	if job == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
+	agentID, ok := h.agentAuth(w, r)
+	if !ok {
+		return
+	}
+	if err := h.jobService.Heartbeat(r.Context(), agentID, r.PathValue("id")); err != nil {
+		h.writeAgentJobError(w, "heartbeat", agentID, r.PathValue("id"), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) agentAckHandler(w http.ResponseWriter, r *http.Request) {
+	agentID, ok := h.agentAuth(w, r)
+	if !ok {
+		return
+	}
+	if err := h.jobService.AckJob(r.Context(), agentID, r.PathValue("id")); err != nil {
+		h.writeAgentJobError(w, "ack", agentID, r.PathValue("id"), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) agentResultHandler(w http.ResponseWriter, r *http.Request) {
+	agentID, ok := h.agentAuth(w, r)
+	if !ok {
+		return
+	}
+
+	var result agentapi.Result
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&result); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid result payload")
+		return
+	}
+
+	if err := h.jobService.RecordResult(r.Context(), agentID, r.PathValue("id"), result); err != nil {
+		h.writeAgentJobError(w, "result", agentID, r.PathValue("id"), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) agentAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if !auth.BearerTokenMatches(r.Header.Get("Authorization"), h.sharedAuthToken) {
 		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
-		return
+		return "", false
 	}
-
-	conn, err := websocket.Accept(w, r, wsproto.AcceptOptions())
-	if err != nil {
-		h.logger.Error("Failed to accept websocket connection", "error", err)
-		return
+	agentID := r.Header.Get(agentapi.AgentIDHeader)
+	if agentID == "" {
+		writeResponse(w, http.StatusBadRequest, "X-Agent-ID is required")
+		return "", false
 	}
-	wsproto.ConfigureConn(conn)
-
-	helloCtx, cancel := context.WithTimeout(r.Context(), agentHelloTimeout)
-	defer cancel()
-
-	var hello terraplanev1.WebsocketEnvelope
-	if err := wsproto.Read(helloCtx, conn, &hello); err != nil {
-		h.logger.Error("Failed to read agent hello", "error", err)
-		_ = conn.Close(websocket.StatusPolicyViolation, "failed to read agent hello")
-		return
-	}
-
-	agentID, err := agentIDFromHello(&hello)
-	if err != nil {
-		h.logger.Error("Invalid agent hello", "error", err)
-		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
-		return
-	}
-
-	h.logger.Info("Received agent hello", "agent_id", agentID)
-
-	session := h.sessionFactory.New(agentID, conn)
-
-	if err := h.sessionRegistry.Register(r.Context(), session); err != nil {
-		h.logger.Error("Failed to register agent session", "agent_id", agentID, "error", err)
-		_ = conn.Close(websocket.StatusInternalError, "failed to register agent session")
-		return
-	}
-
-	// TODO: Stop agent from being killed by various "errors" from the websocket connection like ACK receive
-	if err := session.Run(r.Context()); err != nil {
-		h.logger.Error("Agent session ended with error", "agent_id", agentID, "error", err)
-	}
+	return agentID, true
 }
 
-func (h *handler) validateWebsocketToken(r *http.Request) bool {
-	return auth.BearerTokenMatches(r.Header.Get("Authorization"), h.sharedAuthToken)
-}
-
-func agentIDFromHello(hello *terraplanev1.WebsocketEnvelope) (string, error) {
-	helloMsg := hello.GetHello()
-	if helloMsg == nil {
-		return "", fmt.Errorf("expected hello payload")
+func (h *handler) writeAgentJobError(w http.ResponseWriter, op, agentID, jobID string, err error) {
+	if errors.Is(err, repository.ErrJobNotFound) {
+		writeResponse(w, http.StatusNotFound, "Job not found")
+		return
 	}
-	if helloMsg.GetAgentId() == "" {
-		return "", fmt.Errorf("agent_id is required")
-	}
-	return helloMsg.GetAgentId(), nil
+	h.logger.Error("Agent job request failed", "op", op, "agent_id", agentID, "job_id", jobID, "error", err)
+	writeResponse(w, http.StatusInternalServerError, "Failed to update job")
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +185,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) healthCheck(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, "OK")
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func writeResponse(w http.ResponseWriter, status int, body string) {

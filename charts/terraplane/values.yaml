@@ -21,7 +21,7 @@ commonLabels: {}
 orchestrator:
   # -- Deploy the orchestrator. Set false for an agents-only release (typical: public orch, private agents).
   enabled: true
-  # -- Number of orchestrator replicas
+  # -- Number of orchestrator replicas. Any replica can accept webhooks and agent job polls.
   replicaCount: 1
   migrate:
     # -- Run `terraplane db migrate` as an initContainer before the orchestrator starts
@@ -69,7 +69,7 @@ agentDefaults:
   env: {}
   # -- Shared envFrom for all agents (concatenated with per-agent envFrom)
   envFrom: []
-  # -- WebSocket URL agents use to reach the orchestrator (required when agents is non-empty). Example: wss://terraplane.example.com/ws
+  # -- HTTP URL agents poll for jobs (required when agents is non-empty). Example: https://terraplane.example.com
   orchestratorURL: ""
   # -- Existing ServiceAccount name for agent pods (chart does not create it)
   serviceAccountName: ""

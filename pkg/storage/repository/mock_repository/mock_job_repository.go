@@ -42,6 +42,20 @@ func (m *MockJobRepository) EXPECT() *MockJobRepositoryMockRecorder {
 	return m.recorder
 }
 
+// AckJob mocks base method.
+func (m *MockJobRepository) AckJob(ctx context.Context, jobID, agentID string, leaseExpiresAt *time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AckJob", ctx, jobID, agentID, leaseExpiresAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AckJob indicates an expected call of AckJob.
+func (mr *MockJobRepositoryMockRecorder) AckJob(ctx, jobID, agentID, leaseExpiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AckJob", reflect.TypeOf((*MockJobRepository)(nil).AckJob), ctx, jobID, agentID, leaseExpiresAt)
+}
+
 // ClaimPendingJobsForAgents mocks base method.
 func (m *MockJobRepository) ClaimPendingJobsForAgents(ctx context.Context, agents []string, status models.JobStatus, leaseExpiresAt *time.Time) ([]*models.Job, error) {
 	m.ctrl.T.Helper()
@@ -156,6 +170,20 @@ func (m *MockJobRepository) ReleaseClaimedJob(ctx context.Context, jobID string)
 func (mr *MockJobRepositoryMockRecorder) ReleaseClaimedJob(ctx, jobID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).ReleaseClaimedJob), ctx, jobID)
+}
+
+// RenewLease mocks base method.
+func (m *MockJobRepository) RenewLease(ctx context.Context, jobID, agentID string, leaseExpiresAt *time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewLease", ctx, jobID, agentID, leaseExpiresAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RenewLease indicates an expected call of RenewLease.
+func (mr *MockJobRepositoryMockRecorder) RenewLease(ctx, jobID, agentID, leaseExpiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewLease", reflect.TypeOf((*MockJobRepository)(nil).RenewLease), ctx, jobID, agentID, leaseExpiresAt)
 }
 
 // Update mocks base method.

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Agents poll the orchestrator over HTTP for jobs instead of holding a WebSocket. While a job is running the agent heartbeats to renew the claim lease; expired claimed and running jobs return to pending.
+
+### Removed
+- Agent WebSocket endpoint, in-memory session registry, and ping/pong protocol.
 
 
 ## [0.2.0] - 2026-08-18

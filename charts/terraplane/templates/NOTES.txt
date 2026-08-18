@@ -14,6 +14,6 @@ reference them via orchestrator.envFrom / agentDefaults.envFrom / agents[].envFr
 
 Typical pattern: install the orchestrator in a reachable cluster/network, then install
 agents as a separate release with orchestrator.enabled=false and
-agentDefaults.orchestratorURL pointing at the public WebSocket URL.
+agentDefaults.orchestratorURL pointing at the public HTTP URL.
 
 See charts/terraplane/README.md for values documentation.

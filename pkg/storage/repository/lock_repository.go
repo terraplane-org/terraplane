@@ -7,7 +7,10 @@ import (
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 )
 
-var ErrLockExists = errors.New("project lock already exists")
+var (
+	ErrLockExists  = errors.New("project lock already exists")
+	ErrJobNotFound = errors.New("job not found")
+)
 
 //go:generate mockgen -source=lock_repository.go -destination=mock_repository/mock_lock_repository.go -package=mock_repository
 

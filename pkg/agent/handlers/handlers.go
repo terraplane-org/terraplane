@@ -31,7 +31,7 @@ func (h *Handlers) accept(ctx context.Context, jobID, ackMessage string, run fun
 	if err := h.writeAck(ctx, jobID, ackMessage); err != nil {
 		return err
 	}
-	go run(context.WithoutCancel(ctx))
+	run(ctx)
 	return nil
 }
 

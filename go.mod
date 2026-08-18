@@ -4,7 +4,6 @@ go 1.25.12
 
 require (
 	ariga.io/atlas-provider-gorm v0.6.1
-	github.com/coder/websocket v1.8.14
 	github.com/goforj/wire v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-version v1.9.0

@@ -102,7 +102,7 @@ func (s *HandlersSuite) TestHandlePlanProvisionFailureWritesErrorAndSkipsTerrafo
 
 func (s *HandlersSuite) TestHandlePlanProvisionFailureWriteErrorIsLoggedNotReturned() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("clone failed"))
 
@@ -144,7 +144,7 @@ func (s *HandlersSuite) TestHandlePlanTerraformFailureRemoveWorkspaceErrorStillW
 
 func (s *HandlersSuite) TestHandlePlanTerraformFailureWriteError() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("tf failed"))
@@ -156,7 +156,7 @@ func (s *HandlersSuite) TestHandlePlanTerraformFailureWriteError() {
 func (s *HandlersSuite) TestHandlePlanSuccessWriteFailureRemovesWorkspace() {
 	// Intention: failing to deliver a successful result still cleans up (err is set from writeErr).
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
@@ -199,7 +199,7 @@ func (s *HandlersSuite) TestHandleApplyFetchFailureWritesError() {
 
 func (s *HandlersSuite) TestHandleApplyFetchFailureWriteError() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("missing ws"))
 
@@ -223,7 +223,7 @@ func (s *HandlersSuite) TestHandleApplyTerraformFailureRemovesWorkspace() {
 
 func (s *HandlersSuite) TestHandleApplyTerraformFailureWriteError() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("apply failed"))
@@ -248,7 +248,7 @@ func (s *HandlersSuite) TestHandleApplyRemoveWorkspaceErrorIsBestEffort() {
 
 func (s *HandlersSuite) TestHandleApplySuccessWriteFailureStillRemovesWorkspace() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
@@ -274,7 +274,7 @@ func (s *HandlersSuite) TestHandleUnlockWritesStubSuccess() {
 
 func (s *HandlersSuite) TestHandleUnlockWriteFailureIsBestEffort() {
 	h := s.newHandlers(func(context.Context, *terraplanev1.TerraformEnvelope) error {
-		return errors.New("websocket down")
+		return errors.New("orchestrator down")
 	})
 	h.handleUnlock(context.Background(), "job-1", unlockCmd())
 }
