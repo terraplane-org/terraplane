@@ -24,6 +24,7 @@ type JobService interface {
 	ReleaseClaim(ctx context.Context, jobID string) error
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context) error
+	RefreshAgentClaims(ctx context.Context, agentID string) error
 }
 
 type jobService struct {
@@ -206,6 +207,11 @@ func (j *jobService) ReapExpiredClaims(ctx context.Context) error {
 		j.logger.Info("Reaped expired claimed jobs", "count", n)
 	}
 	return nil
+}
+
+func (j *jobService) RefreshAgentClaims(ctx context.Context, agentID string) error {
+	expires := time.Now().Add(j.jobLease)
+	return j.jobRepository.RefreshAgentClaims(ctx, agentID, &expires)
 }
 
 func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {

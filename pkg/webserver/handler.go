@@ -184,7 +184,21 @@ func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Agent heartbeat handler called")
+	var payload agentHeartbeatPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent heartbeat request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent heartbeat request body")
+		return
+	}
+
+	err := h.jobService.RefreshAgentClaims(r.Context(), payload.AgentID)
+	if err != nil {
+		h.logger.Error("Failed to refresh agent claims", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to refresh agent claims")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {

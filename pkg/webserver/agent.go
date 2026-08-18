@@ -9,3 +9,7 @@ type agentJobClaimPayload struct {
 type agentJobClaimResponse struct {
 	Command command.Command `json:"command"`
 }
+
+type agentHeartbeatPayload struct {
+	AgentID string `json:"agent_id"`
+}

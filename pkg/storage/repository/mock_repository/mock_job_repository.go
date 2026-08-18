@@ -144,6 +144,20 @@ func (mr *MockJobRepositoryMockRecorder) ReapExpiredClaims(ctx, now any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapExpiredClaims", reflect.TypeOf((*MockJobRepository)(nil).ReapExpiredClaims), ctx, now)
 }
 
+// RefreshAgentClaims mocks base method.
+func (m *MockJobRepository) RefreshAgentClaims(ctx context.Context, agentID string, leaseExpiresAt *time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RefreshAgentClaims", ctx, agentID, leaseExpiresAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RefreshAgentClaims indicates an expected call of RefreshAgentClaims.
+func (mr *MockJobRepositoryMockRecorder) RefreshAgentClaims(ctx, agentID, leaseExpiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshAgentClaims", reflect.TypeOf((*MockJobRepository)(nil).RefreshAgentClaims), ctx, agentID, leaseExpiresAt)
+}
+
 // ReleaseClaimedJob mocks base method.
 func (m *MockJobRepository) ReleaseClaimedJob(ctx context.Context, jobID string) error {
 	m.ctrl.T.Helper()
