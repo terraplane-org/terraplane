@@ -229,11 +229,44 @@ func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillEnqueues() {
 	}
 }
 
-func (s *HandlerSuite) TestWebsocketUnauthorized() {
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	rec := httptest.NewRecorder()
-	s.handler.ServeHTTP(rec, req)
-	require.Equal(s.T(), http.StatusUnauthorized, rec.Code)
+func (s *HandlerSuite) TestBearerRequiredOnAgentRoutes() {
+	paths := []string{
+		"/ws",
+		"/agent/jobs/claim",
+		"/agent/jobs/job-1/heartbeat",
+		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/result",
+	}
+	for _, path := range paths {
+		method := http.MethodPost
+		if path == "/ws" {
+			method = http.MethodGet
+		}
+		rec := httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+		require.Equal(s.T(), http.StatusUnauthorized, rec.Code, path)
+
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer wrong")
+		rec = httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, req)
+		require.Equal(s.T(), http.StatusUnauthorized, rec.Code, path)
+	}
+}
+
+func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
+	for _, path := range []string{
+		"/agent/jobs/claim",
+		"/agent/jobs/job-1/heartbeat",
+		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/result",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, req)
+		require.Equal(s.T(), http.StatusOK, rec.Code, path)
+	}
 }
 
 func (s *HandlerSuite) TestWebsocketAcceptFailure() {
