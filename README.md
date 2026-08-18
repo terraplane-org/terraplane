@@ -1,14 +1,10 @@
-<p align="center">
-  <img src="docs/assets/terraplane_logo_icon.svg" alt="Terraplane" width="96">
-</p>
-<h1 align="center">Terraplane</h1>
-<p align="center">PR-driven Terraform automation with remote agents.</p>
-<p align="center">
-  <a href="https://terraplane.io">Website</a> ·
-  <a href="https://terraplane.io/docs">Docs</a> ·
-  <a href="https://terraplane.io/docs/quickstart">Quickstart</a> ·
-  <a href="https://github.com/terraplane-org/terraplane/releases">Releases</a>
-</p>
+
+
+# Terraplane
+
+PR-driven Terraform automation with remote agents.
+
+[Website](https://terraplane.io) · [Docs](https://terraplane.io/docs) · [Quickstart](https://terraplane.io/docs/quickstart) · [Releases](https://github.com/terraplane-org/terraplane/releases)
 
 ---
 
@@ -17,6 +13,8 @@
 This repository is so WIP it hurts. Nothing in here is designed for public consumption, nor should it be relied on for anything other than interest. It's a project I've wanted to make for a long time, but I've yet to determine if I have the capacity to see it through.
 
 ---
+
+
 
 ## What it is
 
@@ -35,12 +33,12 @@ Helm:
 
 ```bash
 helm install terraplane oci://ghcr.io/terraplane-org/charts/terraplane \
-  --version 0.1.3 \
+  --version 0.2.0 \
   -n terraplane --create-namespace \
   -f my-values.yaml
 ```
 
-Chart values and split-install notes: [`charts/terraplane`](charts/terraplane).
+Chart values and split-install notes: `[charts/terraplane](charts/terraplane)`.
 
 ## Acknowledgements
 
