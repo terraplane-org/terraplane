@@ -19,8 +19,9 @@ import (
 )
 
 type dispatchJobs struct {
-	cmds     []command.Command
+	cmd      *command.Command
 	err      error
+	claimed  []string
 	released []string
 	failed   []string
 	reapErr  error
@@ -28,8 +29,9 @@ type dispatchJobs struct {
 }
 
 func (s *dispatchJobs) CreatePendingJobs(context.Context, *scm.Webhook) error { return nil }
-func (s *dispatchJobs) ClaimPendingJobs(context.Context, []string) ([]command.Command, error) {
-	return s.cmds, s.err
+func (s *dispatchJobs) ClaimPendingJob(_ context.Context, agentID string) (*command.Command, error) {
+	s.claimed = append(s.claimed, agentID)
+	return s.cmd, s.err
 }
 func (s *dispatchJobs) ReleaseClaim(_ context.Context, jobID string) error {
 	s.released = append(s.released, jobID)
@@ -352,9 +354,10 @@ func TestPollDispatchesClaimedJobs(t *testing.T) {
 	reg := agentsession.NewRegistry(log.Noop())
 	require.NoError(t, reg.Register(context.Background(), session))
 
+	plan := planDispatchCmd()
 	d := &dispatcher{
 		logger:          log.Noop(),
-		jobService:      &dispatchJobs{cmds: []command.Command{planDispatchCmd()}},
+		jobService:      &dispatchJobs{cmd: &plan},
 		sessionRegistry: reg,
 		jobPollInterval: time.Millisecond,
 	}
@@ -368,13 +371,27 @@ func TestPollDispatchErrorIsLogged(t *testing.T) {
 	reg := mock_agentsession.NewMockRegistry(ctrl)
 	reg.EXPECT().GetAllAgents().Return([]string{"agent-a"}).AnyTimes()
 
+	weird := command.Command{Kind: command.Kind("weird")}
 	d := &dispatcher{
 		logger:          log.Noop(),
-		jobService:      &dispatchJobs{cmds: []command.Command{{Kind: command.Kind("weird")}}},
+		jobService:      &dispatchJobs{cmd: &weird},
 		sessionRegistry: reg,
 		jobPollInterval: time.Millisecond,
 	}
 	startAndCancel(t, d)
+}
+
+func TestTickClaimsUnlockThenEachAgent(t *testing.T) {
+	reg := agentsession.NewRegistry(log.Noop())
+	require.NoError(t, reg.Register(context.Background(), &dispatchSession{id: "agent-a"}))
+	require.NoError(t, reg.Register(context.Background(), &dispatchSession{id: "agent-b"}))
+
+	jobs := &dispatchJobs{}
+	d := &dispatcher{logger: log.Noop(), jobService: jobs, sessionRegistry: reg}
+	d.tick(context.Background())
+
+	require.Equal(t, "", jobs.claimed[0])
+	require.ElementsMatch(t, []string{"agent-a", "agent-b"}, jobs.claimed[1:])
 }
 
 func TestCommandHelpers(t *testing.T) {

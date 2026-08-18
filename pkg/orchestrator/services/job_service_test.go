@@ -277,122 +277,121 @@ func claimedJob(action models.JobAction, payload string) *models.Job {
 	}
 }
 
-func (s *JobServiceSuite) expectClaim(jobs []*models.Job, err error) {
-	s.jobs.EXPECT().ClaimPendingJobsForAgents(
+func (s *JobServiceSuite) expectClaim(job *models.Job, err error) {
+	s.jobs.EXPECT().ClaimPendingJobForAgent(
 		gomock.Any(),
-		[]string{"agent-a"},
+		"agent-a",
 		models.JobStatusClaimed,
 		gomock.Any(),
-	).Return(jobs, err)
+	).Return(job, err)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsEmptyAgents() {
-	s.jobs.EXPECT().ClaimPendingJobsForAgents(
+func (s *JobServiceSuite) TestClaimPendingJobEmptyAgent() {
+	s.jobs.EXPECT().ClaimPendingJobForAgent(
 		gomock.Any(),
-		nil,
+		"",
 		models.JobStatusClaimed,
 		gomock.Any(),
 	).Return(nil, nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), nil)
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "")
 	require.NoError(s.T(), err)
-	require.Empty(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsRepositoryError() {
+func (s *JobServiceSuite) TestClaimPendingJobRepositoryError() {
 	s.expectClaim(nil, errors.New("db down"))
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsPlan() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobPlan() {
+	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Len(s.T(), cmds, 1)
-	require.Equal(s.T(), command.KindPlan, cmds[0].Kind)
-	require.Equal(s.T(), "acme/infra", cmds[0].Plan.Repo)
-	require.Equal(s.T(), 42, cmds[0].Plan.PRNumber)
-	require.Equal(s.T(), "abc123", cmds[0].Plan.CommitSHA)
-	require.Equal(s.T(), "jace", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "agent-a", cmds[0].Plan.Agent)
-	require.Equal(s.T(), "job-1", cmds[0].Plan.JobID)
-	require.Equal(s.T(), "stacks/a", cmds[0].Plan.Dir)
-	require.Equal(s.T(), []string{"a"}, cmds[0].Plan.Stacks)
-	require.Equal(s.T(), "-target=x", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), command.KindPlan, cmd.Kind)
+	require.Equal(s.T(), "acme/infra", cmd.Plan.Repo)
+	require.Equal(s.T(), 42, cmd.Plan.PRNumber)
+	require.Equal(s.T(), "abc123", cmd.Plan.CommitSHA)
+	require.Equal(s.T(), "jace", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "agent-a", cmd.Plan.Agent)
+	require.Equal(s.T(), "job-1", cmd.Plan.JobID)
+	require.Equal(s.T(), "stacks/a", cmd.Plan.Dir)
+	require.Equal(s.T(), []string{"a"}, cmd.Plan.Stacks)
+	require.Equal(s.T(), "-target=x", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsApply() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionApply, `{"trigger_user":"jace"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobApply() {
+	s.expectClaim(claimedJob(models.JobActionApply, `{"trigger_user":"jace"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), command.KindApply, cmds[0].Kind)
-	require.Equal(s.T(), "agent-a", cmds[0].Apply.Agent)
-	require.Equal(s.T(), "stacks/a", cmds[0].Apply.Dir)
-	require.Equal(s.T(), []string{"a"}, cmds[0].Apply.Stacks)
+	require.Equal(s.T(), command.KindApply, cmd.Kind)
+	require.Equal(s.T(), "agent-a", cmd.Apply.Agent)
+	require.Equal(s.T(), "stacks/a", cmd.Apply.Dir)
+	require.Equal(s.T(), []string{"a"}, cmd.Apply.Stacks)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsUnlock() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionUnlock, `{"trigger_user":"jace"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobUnlock() {
+	s.expectClaim(claimedJob(models.JobActionUnlock, `{"trigger_user":"jace"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), command.KindUnlock, cmds[0].Kind)
-	require.Equal(s.T(), "agent-a", cmds[0].Unlock.Agent)
-	require.Equal(s.T(), "stacks/a", cmds[0].Unlock.Dir)
+	require.Equal(s.T(), command.KindUnlock, cmd.Kind)
+	require.Equal(s.T(), "agent-a", cmd.Unlock.Agent)
+	require.Equal(s.T(), "stacks/a", cmd.Unlock.Dir)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsEmptyPayload() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobEmptyPayload() {
+	s.expectClaim(claimedJob(models.JobActionPlan, ""), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), "", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsPayloadNonStringFields() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":1,"plan_flags":null}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobPayloadNonStringFields() {
+	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":1,"plan_flags":null}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), "", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsInvalidPayloadMarksFailed() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "{")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadMarksFailed() {
+	s.expectClaim(claimedJob(models.JobActionPlan, "{"), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "invalid payload")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsInvalidPayloadFailErrorIsWrapped() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "{")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadFailErrorIsWrapped() {
+	s.expectClaim(claimedJob(models.JobActionPlan, "{"), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(errors.New("db"))
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "invalid payload")
 	require.Contains(s.T(), err.Error(), "also failed to mark job failed")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsUnknownActionMarksFailed() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobAction("nope"), `{}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobUnknownActionMarksFailed() {
+	s.expectClaim(claimedJob(models.JobAction("nope"), `{}`), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "unknown job action")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
 func (s *JobServiceSuite) TestReleaseClaim() {

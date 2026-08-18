@@ -51,15 +51,23 @@ func (d *dispatcher) tick(ctx context.Context) {
 	}
 
 	agents := d.sessionRegistry.GetAllAgents()
-	commands, err := d.jobService.ClaimPendingJobs(ctx, agents)
+	d.claimAndDispatch(ctx, "")
+	for _, agentID := range agents {
+		d.claimAndDispatch(ctx, agentID)
+	}
+}
+
+func (d *dispatcher) claimAndDispatch(ctx context.Context, agentID string) {
+	cmd, err := d.jobService.ClaimPendingJob(ctx, agentID)
 	if err != nil {
-		d.logger.Error("Failed to claim pending jobs", "error", err)
+		d.logger.Error("Failed to claim pending job", "agent", agentID, "error", err)
 		return
 	}
-	for _, cmd := range commands {
-		if err := d.dispatchJob(ctx, cmd); err != nil {
-			d.logger.Error("Failed to dispatch job", "kind", cmd.Kind, "error", err)
-		}
+	if cmd == nil {
+		return
+	}
+	if err := d.dispatchJob(ctx, *cmd); err != nil {
+		d.logger.Error("Failed to dispatch job", "agent", agentID, "kind", cmd.Kind, "error", err)
 	}
 }
 

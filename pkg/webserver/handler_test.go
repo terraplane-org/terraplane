@@ -28,8 +28,10 @@ import (
 )
 
 type stubJobs struct {
-	err    error
-	called chan *scm.Webhook
+	err      error
+	called   chan *scm.Webhook
+	claimCmd *command.Command
+	claimErr error
 }
 
 func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
@@ -39,8 +41,8 @@ func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) er
 	return s.err
 }
 
-func (s *stubJobs) ClaimPendingJobs(context.Context, []string) ([]command.Command, error) {
-	return nil, nil
+func (s *stubJobs) ClaimPendingJob(context.Context, string) (*command.Command, error) {
+	return s.claimCmd, s.claimErr
 }
 func (s *stubJobs) ReleaseClaim(context.Context, string) error { return nil }
 func (s *stubJobs) FailClaimedJob(context.Context, string, string) error {
@@ -229,11 +231,82 @@ func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillEnqueues() {
 	}
 }
 
-func (s *HandlerSuite) TestWebsocketUnauthorized() {
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+func (s *HandlerSuite) TestBearerRequiredOnAgentRoutes() {
+	paths := []string{
+		"/ws",
+		"/agent/jobs/claim",
+		"/agent/jobs/job-1/heartbeat",
+		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/result",
+	}
+	for _, path := range paths {
+		method := http.MethodPost
+		if path == "/ws" {
+			method = http.MethodGet
+		}
+		rec := httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+		require.Equal(s.T(), http.StatusUnauthorized, rec.Code, path)
+
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer wrong")
+		rec = httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, req)
+		require.Equal(s.T(), http.StatusUnauthorized, rec.Code, path)
+	}
+}
+
+func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
+	for _, path := range []string{
+		"/agent/jobs/job-1/heartbeat",
+		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/result",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, req)
+		require.Equal(s.T(), http.StatusOK, rec.Code, path)
+	}
+}
+
+func (s *HandlerSuite) TestAgentClaimNoJob() {
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{"agent_id":"agent-dev"}`))
+	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
-	require.Equal(s.T(), http.StatusUnauthorized, rec.Code)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+}
+
+func (s *HandlerSuite) TestAgentClaimReturnsJob() {
+	cmd := command.Command{Kind: command.KindPlan}
+	cmd.Plan.JobID = "job-1"
+	s.jobs.claimCmd = &cmd
+
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{"agent_id":"agent-dev"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+	require.Contains(s.T(), rec.Body.String(), `"Kind":"plan"`)
+	require.Contains(s.T(), rec.Body.String(), "job-1")
+}
+
+func (s *HandlerSuite) TestAgentClaimInvalidJSON() {
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+}
+
+func (s *HandlerSuite) TestAgentClaimServiceError() {
+	s.jobs.claimErr = errors.New("db")
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{"agent_id":"agent-dev"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
 }
 
 func (s *HandlerSuite) TestWebsocketAcceptFailure() {

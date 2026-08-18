@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -52,13 +53,24 @@ func NewHandler(
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
 	h.mux.HandleFunc("POST /scm/webhook", h.scmWebhookHandler)
-	h.mux.HandleFunc("GET /ws", h.websocketHandler)
-	h.mux.HandleFunc("POST /agent/jobs/claim", h.agentJobClaimHandler)
-	h.mux.HandleFunc("POST /agent/jobs/{id}/heartbeat", h.agentHeartbeatHandler)
-	h.mux.HandleFunc("POST /agent/jobs/{id}/ack", h.agentJobAckHandler)
-	h.mux.HandleFunc("POST /agent/jobs/{id}/result", h.agentJobResultHandler)
+	h.mux.Handle("GET /ws", h.requireBearer(http.HandlerFunc(h.websocketHandler)))
+	h.mux.Handle("POST /agent/jobs/claim", h.requireBearer(http.HandlerFunc(h.agentJobClaimHandler)))
+	h.mux.Handle("POST /agent/jobs/{id}/heartbeat", h.requireBearer(http.HandlerFunc(h.agentHeartbeatHandler)))
+	h.mux.Handle("POST /agent/jobs/{id}/ack", h.requireBearer(http.HandlerFunc(h.agentJobAckHandler)))
+	h.mux.Handle("POST /agent/jobs/{id}/result", h.requireBearer(http.HandlerFunc(h.agentJobResultHandler)))
 
 	return h
+}
+
+func (h *handler) requireBearer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !auth.BearerTokenMatches(r.Header.Get("Authorization"), h.sharedAuthToken) {
+			h.logger.Warn("Rejected request with invalid auth token", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
+			writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
@@ -108,12 +120,6 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	if !h.validateWebsocketToken(r) {
-		h.logger.Warn("Rejected websocket connection with invalid auth token", "remote_addr", r.RemoteAddr)
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
-		return
-	}
-
 	conn, err := websocket.Accept(w, r, wsproto.AcceptOptions())
 	if err != nil {
 		h.logger.Error("Failed to accept websocket connection", "error", err)
@@ -155,7 +161,26 @@ func (h *handler) websocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Agent job claim handler called")
+	var payload agentJobClaimPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent job claim request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent job claim request body")
+		return
+	}
+
+	cmd, err := h.jobService.ClaimPendingJob(r.Context(), payload.AgentID)
+	if err != nil {
+		h.logger.Error("Failed to claim pending job", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to claim pending job")
+		return
+	}
+	if cmd == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(agentJobClaimResponse{Command: *cmd})
 }
 
 func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
@@ -168,10 +193,6 @@ func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("Agent job result handler called")
-}
-
-func (h *handler) validateWebsocketToken(r *http.Request) bool {
-	return auth.BearerTokenMatches(r.Header.Get("Authorization"), h.sharedAuthToken)
 }
 
 func agentIDFromHello(hello *terraplanev1.WebsocketEnvelope) (string, error) {
