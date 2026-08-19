@@ -452,3 +452,31 @@ func (s *JobServiceSuite) TestRefreshAgentClaimsError() {
 	err := s.svc.RefreshAgentClaims(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 }
+
+func (s *JobServiceSuite) TestAckJob() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusRunning, updated.Status)
+			return nil
+		},
+	)
+	require.NoError(s.T(), s.svc.AckJob(context.Background(), "job-1"))
+}
+
+func (s *JobServiceSuite) TestAckJobGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.AckJob(context.Background(), "job-1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
+}
+
+func (s *JobServiceSuite) TestAckJobUpdateFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(claimedJob(models.JobActionPlan, `{}`), nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	err := s.svc.AckJob(context.Background(), "job-1")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to update job")
+}

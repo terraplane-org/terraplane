@@ -14,6 +14,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -29,8 +30,12 @@ func testFactory(
 	jobs repository.JobRepository,
 	locks repository.LockRepository,
 	pub scm.Publisher,
+	jobService services.JobService,
 ) Factory {
-	return NewFactory(logger, reg, jobs, locks, pub, &config.Config{})
+	if jobService == nil {
+		jobService = noopJobService{}
+	}
+	return NewFactory(logger, reg, jobs, locks, pub, jobService, &config.Config{})
 }
 
 func TestIsExpectedDisconnect(t *testing.T) {
@@ -50,7 +55,7 @@ func TestFactoryNew(t *testing.T) {
 	locks := mock_repository.NewMockLockRepository(ctrl)
 	pub := mock_scm.NewMockPublisher(ctrl)
 
-	f := testFactory(log.Noop(), reg, jobs, locks, pub)
+	f := testFactory(log.Noop(), reg, jobs, locks, pub, nil)
 	sess := f.New("agent-x", nil)
 	require.Equal(t, "agent-x", sess.ID())
 }
@@ -64,19 +69,11 @@ func TestSessionRunHandlesAckThenCloses(t *testing.T) {
 
 	serverConn, clientConn := testWSPair(t)
 
-	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
-	require.NoError(t, reg.Register(context.Background(), sess))
-
 	processed := make(chan struct{})
-	job := &models.Job{ID: "job-1", Status: models.JobStatusPending, Repo: "acme/infra", PRNumber: 1, StackName: "a"}
-	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(t, models.JobStatusRunning, updated.Status)
-			close(processed)
-			return nil
-		},
-	)
+	jobService := &signalAckJobService{done: processed}
+
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub, jobService).New("agent-1", serverConn)
+	require.NoError(t, reg.Register(context.Background(), sess))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -112,7 +109,7 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 	reg := NewRegistry(log.Noop())
 
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub, nil).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
 	planJob := &models.Job{ID: "plan-1", Repo: "acme/infra", PRNumber: 2, StackName: "a", Status: models.JobStatusRunning}
@@ -170,10 +167,8 @@ func TestSessionRunHandlerError(t *testing.T) {
 	reg := NewRegistry(log.Noop())
 
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, locks, pub).New("agent-1", serverConn)
+	sess := testFactory(log.Noop(), reg, jobs, locks, pub, &signalAckJobService{err: errors.New("db")}).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
-
-	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
 
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(context.Background()) }()
@@ -193,7 +188,7 @@ func TestSessionRunPlanResultHandlerError(t *testing.T) {
 	jobs := mock_repository.NewMockJobRepository(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
+	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl), nil).
 		New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
@@ -218,7 +213,7 @@ func TestSessionRunApplyResultHandlerError(t *testing.T) {
 	jobs := mock_repository.NewMockJobRepository(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl)).
+	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl), nil).
 		New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
@@ -248,6 +243,7 @@ func TestSessionRunUnexpectedDisconnect(t *testing.T) {
 		mock_repository.NewMockJobRepository(ctrl),
 		mock_repository.NewMockLockRepository(ctrl),
 		mock_scm.NewMockPublisher(ctrl),
+		nil,
 	).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
@@ -272,6 +268,7 @@ func TestSessionRunExpectedDisconnect(t *testing.T) {
 		mock_repository.NewMockJobRepository(ctrl),
 		mock_repository.NewMockLockRepository(ctrl),
 		mock_scm.NewMockPublisher(ctrl),
+		nil,
 	).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
@@ -298,6 +295,7 @@ func TestSessionHeartbeatDisconnectsWithoutPong(t *testing.T) {
 		mock_repository.NewMockJobRepository(ctrl),
 		mock_repository.NewMockLockRepository(ctrl),
 		mock_scm.NewMockPublisher(ctrl),
+		noopJobService{},
 		cfg,
 	).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
@@ -342,6 +340,7 @@ func TestSessionHeartbeatAcceptsPong(t *testing.T) {
 		mock_repository.NewMockJobRepository(ctrl),
 		mock_repository.NewMockLockRepository(ctrl),
 		mock_scm.NewMockPublisher(ctrl),
+		noopJobService{},
 		cfg,
 	).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
@@ -419,27 +418,18 @@ func TestDrainTimer(t *testing.T) {
 
 func TestSessionIgnoresControlNoiseAndExtraPongs(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	jobs := mock_repository.NewMockJobRepository(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
+	processed := make(chan struct{})
 	sess := testFactory(
 		log.Noop(),
 		reg,
-		jobs,
+		mock_repository.NewMockJobRepository(ctrl),
 		mock_repository.NewMockLockRepository(ctrl),
 		mock_scm.NewMockPublisher(ctrl),
+		&signalAckJobService{done: processed},
 	).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
-
-	processed := make(chan struct{})
-	job := &models.Job{ID: "job-noise", Status: models.JobStatusPending}
-	jobs.EXPECT().Get(gomock.Any(), "job-noise").Return(job, nil)
-	jobs.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(context.Context, *models.Job) error {
-			close(processed)
-			return nil
-		},
-	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -491,6 +481,7 @@ func TestSessionHeartbeatCancelsAndWriteErrors(t *testing.T) {
 			mock_repository.NewMockJobRepository(ctrl),
 			mock_repository.NewMockLockRepository(ctrl),
 			mock_scm.NewMockPublisher(ctrl),
+			noopJobService{},
 			cfg,
 		).New("agent-1", serverConn)
 		require.NoError(t, reg.Register(context.Background(), sess))
@@ -516,6 +507,7 @@ func TestSessionHeartbeatCancelsAndWriteErrors(t *testing.T) {
 			mock_repository.NewMockJobRepository(ctrl),
 			mock_repository.NewMockLockRepository(ctrl),
 			mock_scm.NewMockPublisher(ctrl),
+			noopJobService{},
 			cfg,
 		).New("agent-1", serverConn)
 		require.NoError(t, reg.Register(context.Background(), sess))
@@ -546,6 +538,7 @@ func TestSessionHeartbeatCancelsAndWriteErrors(t *testing.T) {
 			mock_repository.NewMockJobRepository(ctrl),
 			mock_repository.NewMockLockRepository(ctrl),
 			mock_scm.NewMockPublisher(ctrl),
+			noopJobService{},
 			cfg,
 		).New("agent-1", serverConn)
 		require.NoError(t, reg.Register(context.Background(), sess))

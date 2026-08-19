@@ -9,13 +9,36 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository/mock_repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
+
+type ackStubJobService struct {
+	err   error
+	acked []string
+}
+
+func (s *ackStubJobService) CreatePendingJobs(context.Context, *scm.Webhook) error { return nil }
+func (s *ackStubJobService) ClaimPendingJob(context.Context, string) (*command.Command, error) {
+	return nil, nil
+}
+func (s *ackStubJobService) ReleaseClaim(context.Context, string) error           { return nil }
+func (s *ackStubJobService) FailClaimedJob(context.Context, string, string) error { return nil }
+func (s *ackStubJobService) ReapExpiredClaims(context.Context) error              { return nil }
+func (s *ackStubJobService) RefreshAgentClaims(context.Context, string) error     { return nil }
+func (s *ackStubJobService) AckJob(_ context.Context, jobID string) error {
+	s.acked = append(s.acked, jobID)
+	return s.err
+}
+
+var _ services.JobService = (*ackStubJobService)(nil)
 
 type SessionHandlersSuite struct {
 	suite.Suite
@@ -56,38 +79,24 @@ func sampleJob() *models.Job {
 	}
 }
 
-func (s *SessionHandlersSuite) TestHandleAckMarksJobRunning() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusRunning, updated.Status)
-			return nil
-		},
-	)
+func (s *SessionHandlersSuite) TestHandleAckDelegatesToJobService() {
+	stub := &ackStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handleAck(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId:   "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_Ack{Ack: &terraplanev1.Ack{Message: "plan accepted"}},
 	})
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), []string{"job-1"}, stub.acked)
 }
 
-func (s *SessionHandlersSuite) TestHandleAckGetFailure() {
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+func (s *SessionHandlersSuite) TestHandleAckPropagatesError() {
+	s.sess.jobService = &ackStubJobService{err: errors.New("ack failed")}
 
 	err := s.sess.handleAck(context.Background(), &terraplanev1.TerraformEnvelope{JobId: "job-1"})
 	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to fetch job")
-}
-
-func (s *SessionHandlersSuite) TestHandleAckUpdateFailure() {
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(sampleJob(), nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
-
-	err := s.sess.handleAck(context.Background(), &terraplanev1.TerraformEnvelope{JobId: "job-1"})
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to update job")
+	require.Contains(s.T(), err.Error(), "ack failed")
 }
 
 func (s *SessionHandlersSuite) TestHandlePlanResultSuccessWritesComment() {

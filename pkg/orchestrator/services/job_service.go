@@ -25,6 +25,7 @@ type JobService interface {
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context) error
 	RefreshAgentClaims(ctx context.Context, agentID string) error
+	AckJob(ctx context.Context, jobID string) error
 }
 
 type jobService struct {
@@ -212,6 +213,19 @@ func (j *jobService) ReapExpiredClaims(ctx context.Context) error {
 func (j *jobService) RefreshAgentClaims(ctx context.Context, agentID string) error {
 	expires := time.Now().Add(j.jobLease)
 	return j.jobRepository.RefreshAgentClaims(ctx, agentID, &expires)
+}
+
+func (j *jobService) AckJob(ctx context.Context, jobID string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+
+	job.Status = models.JobStatusRunning
+	if err := j.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s status to running: %w", jobID, err)
+	}
+	return nil
 }
 
 func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {

@@ -202,7 +202,21 @@ func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Agent job ack handler called")
+	var payload agentJobAckPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent job ack request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent job ack request body")
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if err := h.jobService.AckJob(r.Context(), jobID); err != nil {
+		h.logger.Error("Failed to ack job", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to ack job")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) {

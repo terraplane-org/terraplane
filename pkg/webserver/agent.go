@@ -13,3 +13,7 @@ type agentJobClaimResponse struct {
 type agentHeartbeatPayload struct {
 	AgentID string `json:"agent_id"`
 }
+
+type agentJobAckPayload struct {
+	AgentID string `json:"agent_id"`
+}
