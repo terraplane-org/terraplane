@@ -30,6 +30,7 @@ type Config struct {
 	DatabaseDriver                        string        `mapstructure:"DATABASE_DRIVER"`
 	DatabaseURL                           string        `mapstructure:"DATABASE_URL"`
 	SharedAuthToken                       string        `mapstructure:"SHARED_AUTH_TOKEN"`
+	SCMProvider                           string        `mapstructure:"SCM_PROVIDER"`
 }
 
 func NewConfig() (*Config, error) {
@@ -81,4 +82,5 @@ func init() {
 	viper.SetDefault("DATABASE_DRIVER", "postgres")
 	viper.SetDefault("DATABASE_URL", "")
 	viper.SetDefault("SHARED_AUTH_TOKEN", "")
+	viper.SetDefault("SCM_PROVIDER", "github")
 }

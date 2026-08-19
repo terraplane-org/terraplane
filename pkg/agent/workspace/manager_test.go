@@ -14,7 +14,16 @@ import (
 	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 )
+
+type stubRepoAccess struct{}
+
+func (stubRepoAccess) Name() string                { return "github" }
+func (stubRepoAccess) SSHHost() string             { return "github.com" }
+func (stubRepoAccess) CloneURL(slug string) string { return "git@github.com:" + slug + ".git" }
+
+var _ scm.RepositoryAccess = stubRepoAccess{}
 
 type fakeRunner struct {
 	calls []process.Command
@@ -70,7 +79,7 @@ func (s *WorkspaceSuite) cfg() *config.Config {
 }
 
 func (s *WorkspaceSuite) TestProvisionMissingSSHKeyConfig() {
-	m := workspace.NewManagerWith(&config.Config{AgentWorkDir: s.workDir}, log.Noop(), &fakeRunner{})
+	m := workspace.NewManagerWith(&config.Config{AgentWorkDir: s.workDir}, log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "AGENT_SCM_SSH_KEY_PATH")
@@ -80,14 +89,14 @@ func (s *WorkspaceSuite) TestProvisionMissingSSHKeyFile() {
 	m := workspace.NewManagerWith(&config.Config{
 		AgentSCMSSHKeyPath: filepath.Join(s.T().TempDir(), "missing"),
 		AgentWorkDir:       s.workDir,
-	}, log.Noop(), &fakeRunner{})
+	}, log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "SSH key not found")
 }
 
 func (s *WorkspaceSuite) TestProvisionMissingWorkDir() {
-	m := workspace.NewManagerWith(&config.Config{AgentSCMSSHKeyPath: s.sshKey}, log.Noop(), &fakeRunner{})
+	m := workspace.NewManagerWith(&config.Config{AgentSCMSSHKeyPath: s.sshKey}, log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "AGENT_WORK_DIR")
@@ -95,7 +104,7 @@ func (s *WorkspaceSuite) TestProvisionMissingWorkDir() {
 
 func (s *WorkspaceSuite) TestProvisionClonesAndReturnsPath() {
 	runner := successfulCloneRunner(s.T())
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 
 	path, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.NoError(s.T(), err)
@@ -122,7 +131,7 @@ func (s *WorkspaceSuite) TestProvisionClonesAndReturnsPath() {
 
 func (s *WorkspaceSuite) TestProvisionReusesReadyWorkspace() {
 	runner := successfulCloneRunner(s.T())
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 
 	path, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.NoError(s.T(), err)
@@ -141,7 +150,7 @@ func (s *WorkspaceSuite) TestProvisionReplacesIncompleteWorkspace() {
 	// Missing .git / terraplane.yaml → not ready.
 
 	runner := successfulCloneRunner(s.T())
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 	path, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), incomplete, path)
@@ -157,7 +166,7 @@ func (s *WorkspaceSuite) TestProvisionPrunesStaleRevisions() {
 	otherStack := filepath.Join(s.workDir, "terraplane-workspace-acme-infra-abc123-prod")
 	require.NoError(s.T(), os.MkdirAll(otherStack, 0o755))
 
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), successfulCloneRunner(s.T()))
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, successfulCloneRunner(s.T()))
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.NoError(s.T(), err)
 
@@ -175,7 +184,7 @@ func (s *WorkspaceSuite) TestProvisionCleansUpOnCloneFailure() {
 		}
 		return process.Result{ExitCode: 0}, nil
 	}}
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.Error(s.T(), err)
@@ -188,7 +197,7 @@ func (s *WorkspaceSuite) TestProvisionCleansUpOnCloneFailure() {
 
 func (s *WorkspaceSuite) TestFetchWorkspace() {
 	runner := successfulCloneRunner(s.T())
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 	path, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.NoError(s.T(), err)
 
@@ -201,21 +210,21 @@ func (s *WorkspaceSuite) TestFetchWorkspaceNotReady() {
 	dirName := "terraplane-workspace-acme-infra-abc123-stg"
 	require.NoError(s.T(), os.MkdirAll(filepath.Join(s.workDir, dirName), 0o755))
 
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), &fakeRunner{})
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	_, err := m.FetchWorkspace(context.Background(), "acme/infra", "abc123", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "not ready")
 }
 
 func (s *WorkspaceSuite) TestFetchWorkspaceMissingWorkDir() {
-	m := workspace.NewManagerWith(&config.Config{}, log.Noop(), &fakeRunner{})
+	m := workspace.NewManagerWith(&config.Config{}, log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	_, err := m.FetchWorkspace(context.Background(), "acme/infra", "abc", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "AGENT_WORK_DIR")
 }
 
 func (s *WorkspaceSuite) TestRemoveWorkspace() {
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), &fakeRunner{})
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, &fakeRunner{})
 	require.NoError(s.T(), m.RemoveWorkspace(context.Background(), ""))
 
 	dir := filepath.Join(s.workDir, "to-remove")
@@ -231,7 +240,7 @@ func (s *WorkspaceSuite) TestSSHKeyscanFailure() {
 		}
 		return process.Result{ExitCode: 0}, nil
 	}}
-	m := workspace.NewManagerWith(s.cfg(), log.Noop(), runner)
+	m := workspace.NewManagerWith(s.cfg(), log.Noop(), stubRepoAccess{}, runner)
 	_, err := m.ProvisionWorkspace(context.Background(), "acme/infra", "abc", "stg")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "ssh-keyscan")
