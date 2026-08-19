@@ -54,12 +54,6 @@ run-orchestrator: build
 run-agent: build
 		$(BIN_TERRAPLANE) agent
 
-protoc-gen:
-	protoc -I=./proto \
-	  --go_out=. \
-	  --go_opt=module=github.com/xyzjace/terraplane \
-	  ./proto/terraplane/v1/*.proto
-
 # Cross compilation
 build-linux:
 		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BIN_TERRAPLANE_LINUX) -v .
