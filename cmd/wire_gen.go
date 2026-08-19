@@ -16,7 +16,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
-	"github.com/xyzjace/terraplane/pkg/scm/github"
+	"github.com/xyzjace/terraplane/pkg/scm/factory"
 	"github.com/xyzjace/terraplane/pkg/storage"
 	"github.com/xyzjace/terraplane/pkg/webserver"
 )
@@ -29,9 +29,14 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		return nil, err
 	}
 	logger := logging.NewLogger(configConfig)
-	client := github.NewClient(configConfig)
-	provider := github.NewProvider(logger, configConfig, client)
-	publisher := github.NewPublisher(logger, client)
+	provider, err := factory.NewProvider(logger, configConfig)
+	if err != nil {
+		return nil, err
+	}
+	publisher, err := factory.NewPublisher(logger, configConfig)
+	if err != nil {
+		return nil, err
+	}
 	db, err := storage.New(configConfig)
 	if err != nil {
 		return nil, err
