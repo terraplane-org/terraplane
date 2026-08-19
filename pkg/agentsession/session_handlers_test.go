@@ -40,8 +40,8 @@ func (s *commitStubJobService) FailClaimedJob(context.Context, string, string) e
 }
 func (s *commitStubJobService) ReapExpiredClaims(context.Context) error          { return nil }
 func (s *commitStubJobService) RefreshAgentClaims(context.Context, string) error { return nil }
-func (s *commitStubJobService) AckJob(context.Context, string) error             { return nil }
-func (s *commitStubJobService) CommitJobResult(_ context.Context, jobID, result, output, errMsg string) error {
+func (s *commitStubJobService) AckJob(context.Context, string, string) error     { return nil }
+func (s *commitStubJobService) CommitJobResult(_ context.Context, jobID, _ string, result, output, errMsg string) error {
 	s.calls = append(s.calls, commitCall{jobID: jobID, result: result, output: output, errMsg: errMsg})
 	return s.err
 }
@@ -63,11 +63,11 @@ func (s *ackStubJobService) FailClaimedJob(context.Context, string, string) erro
 }
 func (s *ackStubJobService) ReapExpiredClaims(context.Context) error          { return nil }
 func (s *ackStubJobService) RefreshAgentClaims(context.Context, string) error { return nil }
-func (s *ackStubJobService) AckJob(_ context.Context, jobID string) error {
+func (s *ackStubJobService) AckJob(_ context.Context, jobID, _ string) error {
 	s.acked = append(s.acked, jobID)
 	return s.err
 }
-func (s *ackStubJobService) CommitJobResult(context.Context, string, string, string, string) error {
+func (s *ackStubJobService) CommitJobResult(context.Context, string, string, string, string, string) error {
 	return nil
 }
 

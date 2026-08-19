@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const leaseExpiredRunningMsg = "lease expired while job was running"
+
 type jobRepository struct {
 	db *DB
 }
@@ -172,15 +174,50 @@ func (r *jobRepository) FailClaimedJob(ctx context.Context, jobID, errMsg string
 		}).Error
 }
 
-func (r *jobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (int, error) {
-	result := r.db.pool.WithContext(ctx).
-		Model(&models.Job{}).
-		Where("status = ? AND lease_expires_at IS NOT NULL AND lease_expires_at < ?", models.JobStatusClaimed, now).
-		Updates(map[string]interface{}{
-			"status":           models.JobStatusPending,
-			"lease_expires_at": gorm.Expr("NULL"),
-		})
-	return int(result.RowsAffected), result.Error
+func (r *jobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (*repository.ReapExpiredClaimsResult, error) {
+	result := &repository.ReapExpiredClaimsResult{}
+	err := r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		expiredLease := "lease_expires_at IS NOT NULL AND lease_expires_at < ?"
+
+		var running []*models.Job
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("status = ? AND "+expiredLease, models.JobStatusRunning, now).
+			Find(&running).Error; err != nil {
+			return err
+		}
+		if len(running) > 0 {
+			ids := make([]string, len(running))
+			for i, job := range running {
+				ids[i] = job.ID
+			}
+			if err := tx.Model(&models.Job{}).
+				Where("id IN ?", ids).
+				Updates(map[string]interface{}{
+					"status":           models.JobStatusFailed,
+					"error_msg":        leaseExpiredRunningMsg,
+					"lease_expires_at": gorm.Expr("NULL"),
+				}).Error; err != nil {
+				return err
+			}
+			result.RunningFailed = running
+		}
+
+		claimed := tx.Model(&models.Job{}).
+			Where("status = ? AND "+expiredLease, models.JobStatusClaimed, now).
+			Updates(map[string]interface{}{
+				"status":           models.JobStatusPending,
+				"lease_expires_at": gorm.Expr("NULL"),
+			})
+		if claimed.Error != nil {
+			return claimed.Error
+		}
+		result.ClaimedReturned = int(claimed.RowsAffected)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (r *jobRepository) RefreshAgentClaims(ctx context.Context, agentID string, leaseExpiresAt *time.Time) error {

@@ -216,7 +216,7 @@ func drainTimer(t *time.Timer) {
 }
 
 func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
-	return s.jobService.AckJob(ctx, msg.GetJobId())
+	return s.jobService.AckJob(ctx, msg.GetJobId(), s.id)
 }
 
 func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
@@ -229,13 +229,13 @@ func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.Terraf
 	if planResult.GetSuccess() {
 		result = "success"
 	}
-	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), result, planResult.GetOutput(), planResult.GetError())
+	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), s.id, result, planResult.GetOutput(), planResult.GetError())
 }
 
 func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
 	applyResult := msg.GetApplyResult()
 	if applyResult == nil {
-		if err := s.jobService.CommitJobResult(ctx, msg.GetJobId(), "failed", "", "apply result is nil"); err != nil {
+		if err := s.jobService.CommitJobResult(ctx, msg.GetJobId(), s.id, "failed", "", "apply result is nil"); err != nil {
 			return err
 		}
 		return errors.New("apply result is nil")
@@ -245,7 +245,7 @@ func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.Terra
 	if applyResult.GetSuccess() {
 		result = "success"
 	}
-	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), result, applyResult.GetOutput(), applyResult.GetError())
+	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), s.id, result, applyResult.GetOutput(), applyResult.GetError())
 }
 
 func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {

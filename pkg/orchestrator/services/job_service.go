@@ -26,8 +26,8 @@ type JobService interface {
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context) error
 	RefreshAgentClaims(ctx context.Context, agentID string) error
-	AckJob(ctx context.Context, jobID string) error
-	CommitJobResult(ctx context.Context, jobID, result, output, errMsg string) error
+	AckJob(ctx context.Context, jobID, agentID string) error
+	CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error
 }
 
 type jobService struct {
@@ -205,12 +205,37 @@ func (j *jobService) FailClaimedJob(ctx context.Context, jobID, errMsg string) e
 }
 
 func (j *jobService) ReapExpiredClaims(ctx context.Context) error {
-	n, err := j.jobRepository.ReapExpiredClaims(ctx, time.Now())
+	result, err := j.jobRepository.ReapExpiredClaims(ctx, time.Now())
 	if err != nil {
 		return err
 	}
+	if result == nil {
+		return nil
+	}
+
+	for _, job := range result.RunningFailed {
+		if job.Action != models.JobActionApply {
+			continue
+		}
+		if err := j.releaseApplyLock(ctx, job, job.ID); err != nil {
+			j.logger.Error(
+				"Failed to release lock for reaped running apply job",
+				"job_id", job.ID,
+				"repo", job.Repo,
+				"stack", job.StackName,
+				"error", err,
+			)
+		}
+	}
+
+	n := result.ClaimedReturned + len(result.RunningFailed)
 	if n > 0 {
-		j.logger.Info("Reaped expired claimed jobs", "count", n)
+		j.logger.Info(
+			"Reaped expired job claims",
+			"count", n,
+			"claimed_returned", result.ClaimedReturned,
+			"running_failed", len(result.RunningFailed),
+		)
 	}
 	return nil
 }
@@ -220,10 +245,16 @@ func (j *jobService) RefreshAgentClaims(ctx context.Context, agentID string) err
 	return j.jobRepository.RefreshAgentClaims(ctx, agentID, &expires)
 }
 
-func (j *jobService) AckJob(ctx context.Context, jobID string) error {
+func (j *jobService) AckJob(ctx context.Context, jobID, agentID string) error {
 	job, err := j.jobRepository.Get(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+	if err := validateJobAgent(job, agentID); err != nil {
+		return err
+	}
+	if job.Status != models.JobStatusClaimed {
+		return fmt.Errorf("%w: job %s is %s, expected claimed", ErrJobInvalidStatus, jobID, job.Status)
 	}
 
 	job.Status = models.JobStatusRunning
@@ -233,10 +264,16 @@ func (j *jobService) AckJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (j *jobService) CommitJobResult(ctx context.Context, jobID, result, output, errMsg string) error {
+func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error {
 	job, err := j.jobRepository.Get(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+	if err := validateJobAgent(job, agentID); err != nil {
+		return err
+	}
+	if job.Status != models.JobStatusRunning {
+		return fmt.Errorf("%w: job %s is %s, expected running", ErrJobInvalidStatus, jobID, job.Status)
 	}
 
 	success := result == "success"
@@ -380,4 +417,11 @@ func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]strin
 		action = string(models.JobActionUnlock)
 	}
 	return stacks, environments, action
+}
+
+func validateJobAgent(job *models.Job, agentID string) error {
+	if agentID == "" || job.AgentID != agentID {
+		return fmt.Errorf("%w: job %s belongs to agent %q, not %q", ErrJobWrongAgent, job.ID, job.AgentID, agentID)
+	}
+	return nil
 }
