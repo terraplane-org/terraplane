@@ -33,7 +33,7 @@ Helm:
 
 ```bash
 helm install terraplane oci://ghcr.io/terraplane-org/charts/terraplane \
-  --version 0.2.0 \
+  --version 0.3.0 \
   -n terraplane --create-namespace \
   -f my-values.yaml
 ```

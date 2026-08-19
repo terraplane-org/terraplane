@@ -19,7 +19,7 @@ kubectl -n terraplane create secret generic terraplane-orchestrator \
   --from-literal=ORCHESTRATOR_GITHUB_WEBHOOK_SECRET='...'
 
 helm install terraplane-orch oci://ghcr.io/terraplane-org/charts/terraplane \
-  --version 0.2.0 \
+  --version 0.3.0 \
   -n terraplane \
   -f orch-values.yaml
 ```
@@ -60,7 +60,7 @@ kubectl -n terraplane-agents create secret generic agent-prod-ssh \
   --from-file=ssh-private-key=./id_ed25519_prod
 
 helm install terraplane-agents oci://ghcr.io/terraplane-org/charts/terraplane \
-  --version 0.2.0 \
+  --version 0.3.0 \
   -n terraplane-agents \
   -f agents-values.yaml
 ```
