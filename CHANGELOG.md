@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agents now communicate with the orchestrator exclusively over HTTP — WebSocket dispatch has been removed
+- Agent poll loop: agents claim jobs, send heartbeats, and submit results via HTTP endpoints (`POST /agent/jobs/claim`, `/heartbeat`, `/ack`, `/result`)
+- Orchestrator dispatcher refactored into a pure reaper — it no longer claims or dispatches jobs, only reaps expired claims on a timer
+- `AGENT_ORCHESTRATOR_URL` replaces `AGENT_ORCHESTRATOR_WS_URL`; value is an HTTP(S) base URL (e.g. `http://orchestrator:8080`)
+
+### Removed
+
+- WebSocket endpoint (`GET /ws`) and all associated agent session infrastructure (`pkg/agentsession`, `pkg/wsproto`)
+- Protobuf envelope definitions (`proto/`, `pkg/terraplane/v1/`) and `protoc-gen` Makefile target
+- `ORCHESTRATOR_AGENT_PING_INTERVAL`, `ORCHESTRATOR_AGENT_PONG_TIMEOUT`, `ORCHESTRATOR_AGENT_MISSED_HEARTBEATS` config fields
+
 
 ## [0.2.0] - 2026-08-18
 

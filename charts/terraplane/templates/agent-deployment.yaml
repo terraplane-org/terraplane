@@ -1,5 +1,5 @@
 {{- if and .Values.agents (not .Values.agentDefaults.orchestratorURL) }}
-{{- fail "agentDefaults.orchestratorURL is required when agents is non-empty (e.g. wss://terraplane.example.com/ws)" }}
+{{- fail "agentDefaults.orchestratorURL is required when agents is non-empty (e.g. https://terraplane.example.com)" }}
 {{- end }}
 {{- $seenAgents := dict -}}
 {{- range $agent := .Values.agents }}
