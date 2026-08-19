@@ -5,29 +5,35 @@ import (
 	"time"
 
 	"github.com/xyzjace/terraplane/config"
-	"github.com/xyzjace/terraplane/pkg/agent/handlers"
 	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 )
 
+//go:generate mockgen -destination=mock_agent/mock_dispatcher.go -package=mock_agent github.com/xyzjace/terraplane/pkg/agent Dispatcher
+
+// Dispatcher runs a command and signals completion via the done channel.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, cmd *command.Command, done chan<- struct{})
+}
+
 type poller struct {
 	logger             log.Logger
 	config             *config.Config
-	handlers           *handlers.Handlers
+	dispatcher         Dispatcher
 	orchestratorClient orchestrator.Client
 }
 
 func newPoller(
 	cfg *config.Config,
 	logger log.Logger,
-	h *handlers.Handlers,
+	dispatcher Dispatcher,
 	orchestratorClient orchestrator.Client,
 ) *poller {
 	return &poller{
 		logger:             logger,
 		config:             cfg,
-		handlers:           h,
+		dispatcher:         dispatcher,
 		orchestratorClient: orchestratorClient,
 	}
 }
@@ -75,7 +81,7 @@ func (p *poller) executeJob(ctx context.Context, cmd *command.Command) {
 	// handlers.Dispatch launches a goroutine and returns immediately, so we
 	// need a done channel to know when to cancel the heartbeat.
 	done := make(chan struct{})
-	p.handlers.Dispatch(ctx, cmd, done)
+	p.dispatcher.Dispatch(ctx, cmd, done)
 	<-done
 }
 
