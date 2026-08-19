@@ -29,8 +29,14 @@ func New(logger log.Logger, config *config.Config, workspaceManager workspace.Ma
 	}
 }
 
-func (h *Handlers) Dispatch(ctx context.Context, cmd *command.Command) {
+// Dispatch runs the command in a background goroutine and closes done when finished.
+// Callers that need to wait for completion (e.g. to keep a heartbeat alive) should
+// pass a non-nil done channel and block on it.
+func (h *Handlers) Dispatch(ctx context.Context, cmd *command.Command, done chan<- struct{}) {
 	go func() {
+		if done != nil {
+			defer close(done)
+		}
 		ctx = context.WithoutCancel(ctx)
 		switch cmd.Kind {
 		case command.KindPlan:
@@ -40,7 +46,7 @@ func (h *Handlers) Dispatch(ctx context.Context, cmd *command.Command) {
 		case command.KindUnlock:
 			h.handleUnlock(ctx, &cmd.Unlock)
 		default:
-			h.logger.Warn("Received unsupported command kind", "kind", cmd.Kind, "job_id", cmd.Plan.JobID)
+			h.logger.Warn("Received unsupported command kind", "kind", cmd.Kind)
 		}
 	}()
 }

@@ -241,10 +241,14 @@ func (s *HandlersSuite) TestHandleUnlockSubmitFailureIsBestEffort() {
 
 func (s *HandlersSuite) TestDispatchUnknownKindIsIgnored() {
 	h := s.newHandlers()
+	done := make(chan struct{})
 	// No mock expectations — nothing should be called.
-	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnknown})
-	// Give the goroutine a moment to run and confirm no panics.
-	time.Sleep(50 * time.Millisecond)
+	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnknown}, done)
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		s.T().Fatal("timed out waiting for dispatch goroutine")
+	}
 }
 
 func (s *HandlersSuite) TestDispatchPlanRunsHandler() {
@@ -253,13 +257,9 @@ func (s *HandlersSuite) TestDispatchPlanRunsHandler() {
 
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", gomock.Any()).Return("ok", nil)
-	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").DoAndReturn(
-		func(_ context.Context, _, _ string, _ bool, _, _ string) error {
-			close(done)
-			return nil
-		})
+	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(nil)
 
-	h.Dispatch(context.Background(), &command.Command{Kind: command.KindPlan, Plan: *planCmd()})
+	h.Dispatch(context.Background(), &command.Command{Kind: command.KindPlan, Plan: *planCmd()}, done)
 
 	select {
 	case <-done:
@@ -275,13 +275,9 @@ func (s *HandlersSuite) TestDispatchApplyRunsHandler() {
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
 	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg").Return("ok", nil)
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
-	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").DoAndReturn(
-		func(_ context.Context, _, _ string, _ bool, _, _ string) error {
-			close(done)
-			return nil
-		})
+	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(nil)
 
-	h.Dispatch(context.Background(), &command.Command{Kind: command.KindApply, Apply: *applyCmd()})
+	h.Dispatch(context.Background(), &command.Command{Kind: command.KindApply, Apply: *applyCmd()}, done)
 
 	select {
 	case <-done:
@@ -293,13 +289,9 @@ func (s *HandlersSuite) TestDispatchApplyRunsHandler() {
 func (s *HandlersSuite) TestDispatchUnlockRunsHandler() {
 	done := make(chan struct{})
 	h := s.newHandlers()
-	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, gomock.Any(), "").DoAndReturn(
-		func(_ context.Context, _, _ string, _ bool, _, _ string) error {
-			close(done)
-			return nil
-		})
+	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, gomock.Any(), "").Return(nil)
 
-	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnlock, Unlock: *unlockCmd()})
+	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnlock, Unlock: *unlockCmd()}, done)
 
 	select {
 	case <-done:

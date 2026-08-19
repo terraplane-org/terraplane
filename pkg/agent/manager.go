@@ -3,18 +3,14 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
-	"github.com/xyzjace/terraplane/internal/auth"
+	"github.com/xyzjace/terraplane/pkg/agent/handlers"
 	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
-	"github.com/xyzjace/terraplane/pkg/wsproto"
-	"golang.org/x/sync/errgroup"
 )
 
 const reconnectInterval = 5 * time.Second
@@ -42,19 +38,20 @@ func (o *manager) Start(ctx context.Context) error {
 		return fmt.Errorf("shared auth token is not set")
 	}
 
-	o.logger.Info("Starting agent...")
+	o.logger.Info("Starting agent poll loop...", "agent_id", o.config.AgentID, "poll_interval", o.config.AgentPollInterval)
+
+	h := handlers.New(o.logger, o.config, o.workspaceManager, o.terraformManager, o.orchestratorClient)
+	p := newPoller(o.config, o.logger, h, o.orchestratorClient)
 
 	for {
-		err := o.runOnce(ctx)
+		err := p.run(ctx)
 		if ctx.Err() != nil {
 			o.logger.Info("Agent stopped")
 			return nil
 		}
 
 		if err != nil {
-			o.logger.Warn("Agent disconnected; reconnecting", "error", err, "after", reconnectInterval)
-		} else {
-			o.logger.Debug("Agent disconnected; reconnecting", "after", reconnectInterval)
+			o.logger.Warn("Agent poll loop error; restarting", "error", err, "after", reconnectInterval)
 		}
 
 		select {
@@ -64,50 +61,6 @@ func (o *manager) Start(ctx context.Context) error {
 		case <-time.After(reconnectInterval):
 		}
 	}
-}
-
-func (o *manager) runOnce(ctx context.Context) error {
-	conn, _, err := websocket.Dial(ctx, o.config.AgentOrchestratorWSURL, wsproto.DialOptions(http.Header{
-		"Authorization": {auth.BearerHeader(o.config.SharedAuthToken)},
-	}))
-	if err != nil {
-		return fmt.Errorf("dial orchestrator: %w", err)
-	}
-	wsproto.ConfigureConn(conn)
-
-	session := NewSession(o.config.AgentID, conn, o.logger, o.config, o.workspaceManager, o.terraformManager, o.orchestratorClient)
-
-	if err := session.Hello(ctx); err != nil {
-		session.CloseNow()
-		return fmt.Errorf("write agent hello: %w", err)
-	}
-
-	group, gCtx := errgroup.WithContext(ctx)
-	runDone := make(chan struct{})
-
-	group.Go(func() error {
-		defer close(runDone)
-		defer session.Close(websocket.StatusNormalClosure, "")
-		return session.Run(gCtx)
-	})
-
-	group.Go(func() error {
-		select {
-		case <-gCtx.Done():
-			session.Close(websocket.StatusNormalClosure, "shutting down")
-			return nil
-		case <-runDone:
-			return nil
-		}
-	})
-
-	if err := group.Wait(); err != nil {
-		if gCtx.Err() != nil {
-			return nil
-		}
-		return err
-	}
-	return nil
 }
 
 func NewManager(

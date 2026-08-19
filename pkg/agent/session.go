@@ -101,7 +101,7 @@ func (s *Session) Run(ctx context.Context) error {
 				s.logger.Warn("Ignoring unrecognised terraform envelope payload", "agent_id", s.id, "job_id", tf.GetJobId())
 				continue
 			}
-			s.handlers.Dispatch(ctx, cmd)
+			s.handlers.Dispatch(ctx, cmd, nil)
 		default:
 			s.logger.Debug("Ignoring unexpected websocket payload", "agent_id", s.id, "payload", fmt.Sprintf("%T", env.GetPayload()))
 		}
