@@ -39,7 +39,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	}
 	jobRepository := storage.NewJobRepository(db)
 	lockRepository := storage.NewLockRepository(db)
-	jobService := services.NewJobService(logger, jobRepository, lockRepository, provider, configConfig)
+	jobService := services.NewJobService(logger, jobRepository, lockRepository, provider, publisher, configConfig)
 	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher, jobService, configConfig)
 	handler := webserver.NewHandler(logger, provider, publisher, registry, factory, jobService, configConfig)
 	server := webserver.NewServer(configConfig, logger, handler)

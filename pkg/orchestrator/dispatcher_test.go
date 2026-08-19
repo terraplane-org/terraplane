@@ -47,6 +47,9 @@ func (s *dispatchJobs) ReapExpiredClaims(context.Context) error {
 }
 func (s *dispatchJobs) RefreshAgentClaims(context.Context, string) error { return nil }
 func (s *dispatchJobs) AckJob(context.Context, string) error             { return nil }
+func (s *dispatchJobs) CommitJobResult(context.Context, string, string, string, string) error {
+	return nil
+}
 
 type failingDispatchJobs struct {
 	dispatchJobs

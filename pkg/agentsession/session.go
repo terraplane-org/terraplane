@@ -8,11 +8,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
-	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -222,107 +220,32 @@ func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnve
 }
 
 func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
-	jobId := msg.GetJobId()
-	job, err := s.jobRepository.Get(ctx, jobId)
-
-	if err != nil {
-		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
-	}
-
 	planResult := msg.GetPlanResult()
 	if planResult == nil {
 		return errors.New("plan result is nil")
 	}
 
+	result := "failed"
 	if planResult.GetSuccess() {
-		job.Status = models.JobStatusSucceeded
-	} else {
-		job.Status = models.JobStatusFailed
+		result = "success"
 	}
-	job.Output = planResult.Output
-	job.ErrorMsg = planResult.Error
-
-	if err := s.jobRepository.Update(ctx, job); err != nil {
-		return fmt.Errorf("failed to update job %s with plan result: %w", jobId, err)
-	}
-
-	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
-	comment := feedback.PlanResultComment(job, planResult.GetSuccess(), planResult.GetOutput(), planResult.GetError())
-	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
-		s.logger.Error(
-			"Failed to write plan result comment",
-			"job_id", jobId,
-			"repo", job.Repo,
-			"pr", job.PRNumber,
-			"stack", job.StackName,
-			"error", err,
-		)
-	}
-
-	return nil
+	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), result, planResult.GetOutput(), planResult.GetError())
 }
 
 func (s *session) handleApplyResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
-	jobId := msg.GetJobId()
-	job, err := s.jobRepository.Get(ctx, jobId)
-	if err != nil {
-		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
-	}
-
 	applyResult := msg.GetApplyResult()
 	if applyResult == nil {
-		job.Status = models.JobStatusFailed
-		job.ErrorMsg = "apply result is nil"
-	} else if applyResult.GetSuccess() {
-		job.Status = models.JobStatusSucceeded
-		job.Output = applyResult.Output
-		job.ErrorMsg = applyResult.Error
-	} else {
-		job.Status = models.JobStatusFailed
-		job.Output = applyResult.Output
-		job.ErrorMsg = applyResult.Error
-	}
-
-	if err := s.jobRepository.Update(ctx, job); err != nil {
-		if releaseErr := s.releaseApplyLock(ctx, job, jobId); releaseErr != nil {
-			return fmt.Errorf(
-				"failed to update job %s with apply result: %w (also failed to release lock: %v)",
-				jobId, err, releaseErr,
-			)
+		if err := s.jobService.CommitJobResult(ctx, msg.GetJobId(), "failed", "", "apply result is nil"); err != nil {
+			return err
 		}
-		return fmt.Errorf("failed to update job %s with apply result: %w", jobId, err)
-	}
-
-	if err := s.releaseApplyLock(ctx, job, jobId); err != nil {
-		return err
-	}
-
-	if applyResult == nil {
 		return errors.New("apply result is nil")
 	}
 
-	// TODO: This is not an ideal place to publish to the SCM provider, but for now lets do it here
-	comment := feedback.ApplyResultComment(job, applyResult.GetSuccess(), applyResult.GetOutput(), applyResult.GetError())
-	if err := s.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
-		s.logger.Error(
-			"Failed to write apply result comment",
-			"job_id", jobId,
-			"repo", job.Repo,
-			"pr", job.PRNumber,
-			"stack", job.StackName,
-			"error", err,
-		)
+	result := "failed"
+	if applyResult.GetSuccess() {
+		result = "success"
 	}
-
-	return nil
-}
-
-func (s *session) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {
-	if err := s.lockRepository.Delete(ctx, job.Repo, job.StackName, "default"); err != nil {
-		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobID, job.StackName, err)
-	}
-	s.logger.Debug("Released lock for job", "job_id", jobID, "repo", job.Repo, "stack", job.StackName)
-	return nil
+	return s.jobService.CommitJobResult(ctx, msg.GetJobId(), result, applyResult.GetOutput(), applyResult.GetError())
 }
 
 func (s *session) Write(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {

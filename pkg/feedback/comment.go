@@ -23,6 +23,16 @@ type resourceDelta struct {
 	add, change, destroy int
 }
 
+// JobResultComment formats a plan or apply job result as a GitHub PR comment body.
+func JobResultComment(job *models.Job, success bool, output, errMsg string) string {
+	switch job.Action {
+	case models.JobActionApply:
+		return ApplyResultComment(job, success, output, errMsg)
+	default:
+		return PlanResultComment(job, success, output, errMsg)
+	}
+}
+
 // PlanResultComment formats a plan job result as a GitHub PR comment body.
 func PlanResultComment(job *models.Job, success bool, output, errMsg string) string {
 	var b strings.Builder

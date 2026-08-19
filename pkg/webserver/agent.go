@@ -17,3 +17,10 @@ type agentHeartbeatPayload struct {
 type agentJobAckPayload struct {
 	AgentID string `json:"agent_id"`
 }
+
+type agentJobResultPayload struct {
+	AgentID string `json:"agent_id"`
+	Result  string `json:"result"`
+	Output  string `json:"output"`
+	Error   string `json:"error"`
+}

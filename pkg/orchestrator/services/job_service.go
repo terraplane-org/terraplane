@@ -9,6 +9,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/command"
+	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -26,6 +27,7 @@ type JobService interface {
 	ReapExpiredClaims(ctx context.Context) error
 	RefreshAgentClaims(ctx context.Context, agentID string) error
 	AckJob(ctx context.Context, jobID string) error
+	CommitJobResult(ctx context.Context, jobID, result, output, errMsg string) error
 }
 
 type jobService struct {
@@ -33,6 +35,7 @@ type jobService struct {
 	jobRepository  repository.JobRepository
 	lockRepository repository.LockRepository
 	scmProvider    scm.Provider
+	scmPublisher   scm.Publisher
 	jobLease       time.Duration
 }
 
@@ -41,6 +44,7 @@ func NewJobService(
 	jobRepository repository.JobRepository,
 	lockRepository repository.LockRepository,
 	scmProvider scm.Provider,
+	scmPublisher scm.Publisher,
 	config *config.Config,
 ) JobService {
 	return &jobService{
@@ -48,6 +52,7 @@ func NewJobService(
 		jobRepository:  jobRepository,
 		lockRepository: lockRepository,
 		scmProvider:    scmProvider,
+		scmPublisher:   scmPublisher,
 		jobLease:       config.OrchestratorJobLease,
 	}
 }
@@ -225,6 +230,61 @@ func (j *jobService) AckJob(ctx context.Context, jobID string) error {
 	if err := j.jobRepository.Update(ctx, job); err != nil {
 		return fmt.Errorf("failed to update job %s status to running: %w", jobID, err)
 	}
+	return nil
+}
+
+func (j *jobService) CommitJobResult(ctx context.Context, jobID, result, output, errMsg string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+
+	success := result == "success"
+	if success {
+		job.Status = models.JobStatusSucceeded
+	} else {
+		job.Status = models.JobStatusFailed
+	}
+	job.Output = output
+	job.ErrorMsg = errMsg
+
+	if err := j.jobRepository.Update(ctx, job); err != nil {
+		if job.Action == models.JobActionApply {
+			if releaseErr := j.releaseApplyLock(ctx, job, jobID); releaseErr != nil {
+				return fmt.Errorf(
+					"failed to update job %s with result: %w (also failed to release lock: %v)",
+					jobID, err, releaseErr,
+				)
+			}
+		}
+		return fmt.Errorf("failed to update job %s with result: %w", jobID, err)
+	}
+
+	if job.Action == models.JobActionApply {
+		if err := j.releaseApplyLock(ctx, job, jobID); err != nil {
+			return err
+		}
+	}
+
+	comment := feedback.JobResultComment(job, success, output, errMsg)
+	if err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		j.logger.Error(
+			"Failed to write job result comment",
+			"job_id", jobID,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+	return nil
+}
+
+func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {
+	if err := j.lockRepository.Delete(ctx, job.Repo, job.StackName, applyLockWorkspace); err != nil {
+		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobID, job.StackName, err)
+	}
+	j.logger.Debug("Released lock for job", "job_id", jobID, "repo", job.Repo, "stack", job.StackName)
 	return nil
 }
 
