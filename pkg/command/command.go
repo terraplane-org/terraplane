@@ -16,6 +16,19 @@ type Command struct {
 	Unlock UnlockCommand
 }
 
+func (c *Command) JobID() string {
+	switch c.Kind {
+	case KindPlan:
+		return c.Plan.JobID
+	case KindApply:
+		return c.Apply.JobID
+	case KindUnlock:
+		return c.Unlock.JobID
+	default:
+		return ""
+	}
+}
+
 type base struct {
 	Repo, TriggerUser, RawComment, CommitSHA, Agent, JobID, Dir string
 	PRNumber                                                    int

@@ -64,7 +64,6 @@ services:
     environment:
       AGENT_ID: "agent-dev"
       AGENT_ORCHESTRATOR_URL: "http://orchestrator:8080"
-      AGENT_ORCHESTRATOR_WS_URL: "ws://orchestrator:8080/ws"
       AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
       AGENT_WORK_DIR: /var/terraplane/work
       AGENT_TERRAFORM_BIN_DIR: /var/terraplane/work/terraform
@@ -83,7 +82,6 @@ services:
     environment:
       AGENT_ID: "agent-prod"
       AGENT_ORCHESTRATOR_URL: "http://orchestrator:8080"
-      AGENT_ORCHESTRATOR_WS_URL: "ws://orchestrator:8080/ws"
       AGENT_SCM_SSH_KEY_PATH: /run/secrets/git_ssh_key
       AGENT_WORK_DIR: /var/terraplane/work
       AGENT_TERRAFORM_BIN_DIR: /var/terraplane/work/terraform
