@@ -16,15 +16,13 @@ func (h *Handlers) handleUnlock(ctx context.Context, jobID string, cmd *terrapla
 	)
 
 	// TODO: release terraform state lock
-	result := &terraplanev1.UnlockResult{
-		Success: true,
-		Output:  fmt.Sprintf("stub unlock for repository %s pull request #%d", cmd.GetRepo(), cmd.GetPrNumber()),
-	}
+	output := fmt.Sprintf("stub unlock for repository %s pull request #%d", cmd.GetRepo(), cmd.GetPrNumber())
 
-	if err := h.writeUnlockResult(ctx, jobID, result); err != nil {
+	if err := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, true, output, ""); err != nil {
 		h.logger.Error(
-			"Failed to send unlock result to orchestrator",
+			"Failed to submit unlock result to orchestrator",
 			"job_id", jobID,
+			"agent_id", h.agentID,
 			"repo", cmd.GetRepo(),
 			"error", err,
 		)

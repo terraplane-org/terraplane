@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 
+	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -12,18 +14,22 @@ import (
 type WriteFunc func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error
 
 type Handlers struct {
-	logger           log.Logger
-	write            WriteFunc
-	workspaceManager workspace.Manager
-	terraformManager terraform.Manager
+	logger             log.Logger
+	write              WriteFunc
+	workspaceManager   workspace.Manager
+	terraformManager   terraform.Manager
+	orchestratorClient orchestrator.Client
+	agentID            string
 }
 
-func New(logger log.Logger, write WriteFunc, workspaceManager workspace.Manager, terraformManager terraform.Manager) *Handlers {
+func New(logger log.Logger, config *config.Config, write WriteFunc, workspaceManager workspace.Manager, terraformManager terraform.Manager, orchestratorClient orchestrator.Client) *Handlers {
 	return &Handlers{
-		logger:           logger,
-		write:            write,
-		workspaceManager: workspaceManager,
-		terraformManager: terraformManager,
+		logger:             logger,
+		write:              write,
+		agentID:            config.AgentID,
+		workspaceManager:   workspaceManager,
+		terraformManager:   terraformManager,
+		orchestratorClient: orchestratorClient,
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/command"
 )
 
+//go:generate mockgen -destination=mock_orchestrator/mock_client.go -package=mock_orchestrator github.com/xyzjace/terraplane/pkg/agent/orchestrator Client
 type Client interface {
 	ClaimJob(ctx context.Context, agentID string) (*command.Command, error)
 	Heartbeat(ctx context.Context, jobID string, agentID string) error

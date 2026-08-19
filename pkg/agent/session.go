@@ -7,7 +7,9 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/agent/handlers"
+	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -28,17 +30,19 @@ func NewSession(
 	id string,
 	conn *websocket.Conn,
 	logger log.Logger,
+	cfg *config.Config,
 	workspaceManager workspace.Manager,
 	terraformManager terraform.Manager,
+	orchestratorClient orchestrator.Client,
 ) *Session {
 	s := &Session{
 		id:     id,
 		conn:   conn,
 		logger: logger,
 	}
-	s.handlers = handlers.New(logger, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
+	s.handlers = handlers.New(logger, cfg, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
 		return s.WriteTerraform(ctx, env)
-	}, workspaceManager, terraformManager)
+	}, workspaceManager, terraformManager, orchestratorClient)
 	return s
 }
 

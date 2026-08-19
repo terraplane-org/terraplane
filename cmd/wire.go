@@ -10,6 +10,7 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
 	"github.com/xyzjace/terraplane/pkg/agent"
+	agentorchestrator "github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
@@ -51,6 +52,7 @@ func InitializeAgent() (agent.Manager, error) {
 		config.NewConfig,
 		workspace.NewManager,
 		terraform.NewManager,
+		agentorchestrator.NewClient,
 		agent.NewManager,
 	)
 	return nil, nil

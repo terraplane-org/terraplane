@@ -26,15 +26,11 @@ func (h *Handlers) handleApply(ctx context.Context, jobID string, cmd *terraplan
 			"stack", cmd.GetStackName(),
 			"error", err,
 		)
-		if writeErr := h.writeApplyResult(ctx, jobID, &terraplanev1.ApplyResult{
-			Success: false,
-			Error:   err.Error(),
-		}); writeErr != nil {
+		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, "", err.Error()); writeErr != nil {
 			h.logger.Error(
-				"Failed to send apply result to orchestrator",
+				"Failed to submit apply result to orchestrator",
 				"job_id", jobID,
-				"repo", cmd.GetRepo(),
-				"stack", cmd.GetStackName(),
+				"agent_id", h.agentID,
 				"error", writeErr,
 			)
 		}
@@ -62,29 +58,20 @@ func (h *Handlers) handleApply(ctx context.Context, jobID string, cmd *terraplan
 			"stack", cmd.GetStackName(),
 			"error", err,
 		)
-		if writeErr := h.writeApplyResult(ctx, jobID, &terraplanev1.ApplyResult{
-			Success: false,
-			Output:  output,
-			Error:   err.Error(),
-		}); writeErr != nil {
+		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, output, err.Error()); writeErr != nil {
 			h.logger.Error(
-				"Failed to send apply result to orchestrator",
+				"Failed to submit apply result to orchestrator",
 				"job_id", jobID,
-				"repo", cmd.GetRepo(),
-				"stack", cmd.GetStackName(),
+				"agent_id", h.agentID,
 				"error", writeErr,
 			)
 		}
 		return
 	}
 
-	// TODO: Output here is going to be giant, this is not a smart way of doing things
-	if writeErr := h.writeApplyResult(ctx, jobID, &terraplanev1.ApplyResult{
-		Success: true,
-		Output:  output,
-	}); writeErr != nil {
+	if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, true, output, ""); writeErr != nil {
 		h.logger.Error(
-			"Failed to send apply result to orchestrator",
+			"Failed to submit apply result to orchestrator",
 			"job_id", jobID,
 			"repo", cmd.GetRepo(),
 			"stack", cmd.GetStackName(),

@@ -171,7 +171,6 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 		TriggeringUser: "jace",
 		CommitSHA:      "abc",
 	}}, nil)
-	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 0).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
 	rec := httptest.NewRecorder()
@@ -180,11 +179,11 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 	require.Contains(s.T(), rec.Body.String(), "Webhook parsed successfully")
 
+	// Neither CreatePendingJobs nor AcknowledgeComment should be called for non-terraplane comments.
 	select {
 	case got := <-s.jobs.called:
-		require.Equal(s.T(), "not a terraplane command", got.FullCommand)
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for CreatePendingJobs")
+		s.T().Fatalf("CreatePendingJobs should not have been called, but got: %v", got)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/auth"
 	"github.com/xyzjace/terraplane/pkg/agentsession"
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
@@ -89,6 +90,17 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, webhook := range webhooks {
+		cmd := command.ParseWebhook(&webhook)
+		if cmd.Kind == command.KindUnknown {
+			h.logger.Debug(
+				"Ignoring pull request comment that is not a terraplane command",
+				"repo", webhook.RepositorySlug,
+				"pr", webhook.PRNumber,
+				"user", webhook.TriggeringUser,
+				"comment", webhook.FullCommand,
+			)
+			continue
+		}
 
 		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
 			h.logger.Error(
@@ -99,7 +111,6 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 
-		// TODO: Is this really the appropriate place to react to the comment?
 		if err := h.scmPublisher.AcknowledgeComment(
 			r.Context(),
 			webhook.RepositorySlug,
