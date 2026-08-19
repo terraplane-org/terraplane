@@ -286,13 +286,23 @@ func (s *JobServiceSuite) expectClaim(job *models.Job, err error) {
 	).Return(job, err)
 }
 
+func (s *JobServiceSuite) requireLeaseAboutOneMinute(lease *time.Time, from time.Time) {
+	s.T().Helper()
+	require.NotNil(s.T(), lease)
+	require.WithinDuration(s.T(), from.Add(time.Minute), *lease, 2*time.Second)
+}
+
 func (s *JobServiceSuite) TestClaimPendingJobEmptyAgent() {
+	before := time.Now()
 	s.jobs.EXPECT().ClaimPendingJobForAgent(
 		gomock.Any(),
 		"",
 		models.JobStatusClaimed,
 		gomock.Any(),
-	).Return(nil, nil)
+	).DoAndReturn(func(_ context.Context, _ string, _ models.JobStatus, lease *time.Time) (*models.Job, error) {
+		s.requireLeaseAboutOneMinute(lease, before)
+		return nil, nil
+	})
 
 	cmd, err := s.svc.ClaimPendingJob(context.Background(), "")
 	require.NoError(s.T(), err)
@@ -423,5 +433,22 @@ func (s *JobServiceSuite) TestReapExpiredClaimsSome() {
 func (s *JobServiceSuite) TestReapExpiredClaimsError() {
 	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(0, errors.New("db"))
 	err := s.svc.ReapExpiredClaims(context.Background())
+	require.Error(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestRefreshAgentClaims() {
+	before := time.Now()
+	s.jobs.EXPECT().RefreshAgentClaims(gomock.Any(), "agent-a", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, lease *time.Time) error {
+			s.requireLeaseAboutOneMinute(lease, before)
+			return nil
+		},
+	)
+	require.NoError(s.T(), s.svc.RefreshAgentClaims(context.Background(), "agent-a"))
+}
+
+func (s *JobServiceSuite) TestRefreshAgentClaimsError() {
+	s.jobs.EXPECT().RefreshAgentClaims(gomock.Any(), "agent-a", gomock.Any()).Return(errors.New("db"))
+	err := s.svc.RefreshAgentClaims(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 }

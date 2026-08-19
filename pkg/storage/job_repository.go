@@ -183,6 +183,17 @@ func (r *jobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (i
 	return int(result.RowsAffected), result.Error
 }
 
+func (r *jobRepository) RefreshAgentClaims(ctx context.Context, agentID string, leaseExpiresAt *time.Time) error {
+	return r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where(
+			"agent_id = ? AND status IN ?",
+			agentID,
+			[]models.JobStatus{models.JobStatusClaimed, models.JobStatusRunning},
+		).
+		Update("lease_expires_at", leaseExpiresAt).Error
+}
+
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }

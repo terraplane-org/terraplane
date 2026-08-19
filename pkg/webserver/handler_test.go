@@ -28,10 +28,12 @@ import (
 )
 
 type stubJobs struct {
-	err      error
-	called   chan *scm.Webhook
-	claimCmd *command.Command
-	claimErr error
+	err        error
+	called     chan *scm.Webhook
+	claimCmd   *command.Command
+	claimErr   error
+	refreshErr error
+	refreshed  []string
 }
 
 func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
@@ -49,6 +51,10 @@ func (s *stubJobs) FailClaimedJob(context.Context, string, string) error {
 	return nil
 }
 func (s *stubJobs) ReapExpiredClaims(context.Context) error { return nil }
+func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
+	s.refreshed = append(s.refreshed, agentID)
+	return s.refreshErr
+}
 
 type stubFactory struct {
 	session agentsession.Session
@@ -262,11 +268,15 @@ func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
 		"/agent/jobs/job-1/ack",
 		"/agent/jobs/job-1/result",
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"agent_id":"agent-dev"}`))
 		req.Header.Set("Authorization", "Bearer secret")
 		rec := httptest.NewRecorder()
 		s.handler.ServeHTTP(rec, req)
-		require.Equal(s.T(), http.StatusOK, rec.Code, path)
+		want := http.StatusOK
+		if path == "/agent/jobs/job-1/heartbeat" {
+			want = http.StatusNoContent
+		}
+		require.Equal(s.T(), want, rec.Code, path)
 	}
 }
 
@@ -307,6 +317,34 @@ func (s *HandlerSuite) TestAgentClaimServiceError() {
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+}
+
+func (s *HandlerSuite) agentPOST(path, body string) *httptest.ResponseRecorder {
+	s.T().Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *HandlerSuite) TestAgentHeartbeatExtendsClaims() {
+	rec := s.agentPOST("/agent/jobs/job-1/heartbeat", `{"agent_id":"agent-dev"}`)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Equal(s.T(), []string{"agent-dev"}, s.jobs.refreshed)
+}
+
+func (s *HandlerSuite) TestAgentHeartbeatInvalidJSON() {
+	rec := s.agentPOST("/agent/jobs/job-1/heartbeat", `{`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Empty(s.T(), s.jobs.refreshed)
+}
+
+func (s *HandlerSuite) TestAgentHeartbeatServiceError() {
+	s.jobs.refreshErr = errors.New("db")
+	rec := s.agentPOST("/agent/jobs/job-1/heartbeat", `{"agent_id":"agent-dev"}`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Equal(s.T(), []string{"agent-dev"}, s.jobs.refreshed)
 }
 
 func (s *HandlerSuite) TestWebsocketAcceptFailure() {
