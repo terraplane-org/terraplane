@@ -23,7 +23,6 @@ type Config struct {
 	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
 	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
-	AgentOrchestratorWSURL                string        `mapstructure:"AGENT_ORCHESTRATOR_WS_URL"`
 	AgentPollInterval                     time.Duration `mapstructure:"AGENT_POLL_INTERVAL"`
 	AgentHeartbeatInterval                time.Duration `mapstructure:"AGENT_HEARTBEAT_INTERVAL"`
 	AgentID                               string        `mapstructure:"AGENT_ID"`
@@ -78,7 +77,6 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://127.0.0.1:8080")
-	viper.SetDefault("AGENT_ORCHESTRATOR_WS_URL", "ws://127.0.0.1:8080/ws")
 	viper.SetDefault("AGENT_POLL_INTERVAL", "5s")
 	viper.SetDefault("AGENT_HEARTBEAT_INTERVAL", "30s")
 	viper.SetDefault("AGENT_ID", "")
