@@ -17,8 +17,8 @@ build:
 		CGO_ENABLED=0 $(GOBUILD) -o $(BIN_TERRAPLANE) -v .
 
 # Packages expected to stay at 100% unit coverage (pure / minimal deps).
-# wsproto and scm/github are intentionally omitted: unreachable marshal-error
-# branches are not worth package-level test hooks.
+# wsproto, scm/github, and agent/orchestrator are intentionally omitted: unreachable
+# marshal-error and transport-construction branches are not worth package-level test hooks.
 # workspace/terraform intentionally omit Ensure/download and some OS edge paths.
 COVERAGE_FULL_PKGS=./pkg/log ./internal/auth ./pkg/terraplaneconfig ./pkg/feedback ./pkg/command ./pkg/orchestrator/services ./pkg/agentsession ./pkg/agent/handlers ./pkg/webserver
 # Exclude generated mocks and protobuf stubs from the aggregate report.
