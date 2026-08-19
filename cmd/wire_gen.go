@@ -11,9 +11,9 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/logging"
 	"github.com/xyzjace/terraplane/pkg/agent"
+	orchestrator2 "github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
-	"github.com/xyzjace/terraplane/pkg/agentsession"
 	"github.com/xyzjace/terraplane/pkg/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm/github"
@@ -32,19 +32,16 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	client := github.NewClient(configConfig)
 	provider := github.NewProvider(logger, configConfig, client)
 	publisher := github.NewPublisher(logger, client)
-	registry := agentsession.NewRegistry(logger)
 	db, err := storage.New(configConfig)
 	if err != nil {
 		return nil, err
 	}
 	jobRepository := storage.NewJobRepository(db)
 	lockRepository := storage.NewLockRepository(db)
-	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher, configConfig)
-	jobService := services.NewJobService(logger, jobRepository, lockRepository, provider, configConfig)
-	handler := webserver.NewHandler(logger, provider, publisher, registry, factory, jobService, configConfig)
+	jobService := services.NewJobService(logger, jobRepository, lockRepository, provider, publisher, configConfig)
+	handler := webserver.NewHandler(logger, provider, publisher, jobService, configConfig)
 	server := webserver.NewServer(configConfig, logger, handler)
-	unlockService := services.NewUnlockService(logger, provider, publisher, jobRepository, lockRepository)
-	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobService, registry, unlockService)
+	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobService)
 	manager := orchestrator.NewManager(configConfig, logger, server, db, dispatcher)
 	return manager, nil
 }
@@ -57,7 +54,8 @@ func InitializeAgent() (agent.Manager, error) {
 	logger := logging.NewLogger(configConfig)
 	manager := workspace.NewManager(configConfig, logger)
 	terraformManager := terraform.NewManager(configConfig, logger)
-	agentManager := agent.NewManager(configConfig, logger, manager, terraformManager)
+	client := orchestrator2.NewClient(configConfig)
+	agentManager := agent.NewManager(configConfig, logger, manager, terraformManager, client)
 	return agentManager, nil
 }
 

@@ -73,7 +73,7 @@ orchestrator:
   enabled: false
 
 agentDefaults:
-  orchestratorURL: wss://terraplane.example.com/ws
+  orchestratorURL: https://terraplane.example.com
   envFrom:
     - secretRef:
         name: terraplane-agent
@@ -95,7 +95,7 @@ To attach arbitrary volumes (for example a Secrets Store CSI mount that drives `
 
 ```yaml
 agentDefaults:
-  orchestratorURL: wss://orchestrator.example.com/ws
+  orchestratorURL: https://orchestrator.example.com
   serviceAccountName: terraplane-agent
   envFrom:
     - secretRef:
@@ -166,7 +166,7 @@ Image tags follow release semver (`ghcr.io/terraplane-org/terraplane:<version>`)
 | orchestrator.ingress.tls | list | `[]` | Ingress TLS |
 | agentDefaults.env | object | `{}` | Shared env for all agents (merged under per-agent env) |
 | agentDefaults.envFrom | list | `[]` | Shared envFrom for all agents (concatenated with per-agent envFrom) |
-| agentDefaults.orchestratorURL | string | `""` | WebSocket URL for agents (required when agents is non-empty). Example: `wss://terraplane.example.com/ws` |
+| agentDefaults.orchestratorURL | string | `""` | HTTP(S) base URL agents use to reach the orchestrator (required when agents is non-empty). Example: `https://terraplane.example.com` |
 | agentDefaults.serviceAccountName | string | `""` | Existing ServiceAccount for agent pods (chart does not create it). Per-agent non-empty override wins. |
 | agentDefaults.extraVolumes | list | `[]` | Extra PodSpec volumes for all agents (concatenated with `agents[].extraVolumes`; pass-through) |
 | agentDefaults.extraVolumeMounts | list | `[]` | Extra volumeMounts for all agents (concatenated with `agents[].extraVolumeMounts`; after work/ssh) |

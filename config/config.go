@@ -16,13 +16,12 @@ type Config struct {
 	OrchestratorListenPort                int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
 	OrchestratorGithubWebhookSecret       string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
 	OrchestratorGithubAccessToken         string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
-	OrchestratorAgentPingInterval         time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PING_INTERVAL"`
-	OrchestratorAgentPongTimeout          time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PONG_TIMEOUT"`
-	OrchestratorAgentMissedHeartbeats     int           `mapstructure:"ORCHESTRATOR_AGENT_MISSED_HEARTBEATS"`
 	OrchestratorDispatcherJobPollInterval time.Duration `mapstructure:"ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL"`
 	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
 	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
+	AgentPollInterval                     time.Duration `mapstructure:"AGENT_POLL_INTERVAL"`
+	AgentHeartbeatInterval                time.Duration `mapstructure:"AGENT_HEARTBEAT_INTERVAL"`
 	AgentID                               string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath                    string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 	AgentWorkDir                          string        `mapstructure:"AGENT_WORK_DIR"`
@@ -68,13 +67,12 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_LISTEN_PORT", 8080)
 	viper.SetDefault("ORCHESTRATOR_GITHUB_WEBHOOK_SECRET", "")
 	viper.SetDefault("ORCHESTRATOR_GITHUB_ACCESS_TOKEN", "")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PING_INTERVAL", "30s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PONG_TIMEOUT", "3s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_MISSED_HEARTBEATS", 2)
 	viper.SetDefault("ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL", "5s")
 	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
-	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "ws://orchestrator:8080/ws")
+	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://127.0.0.1:8080")
+	viper.SetDefault("AGENT_POLL_INTERVAL", "5s")
+	viper.SetDefault("AGENT_HEARTBEAT_INTERVAL", "30s")
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 	viper.SetDefault("AGENT_WORK_DIR", "")

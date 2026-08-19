@@ -4,28 +4,27 @@ import (
 	"context"
 	"fmt"
 
-	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
+	"github.com/xyzjace/terraplane/pkg/command"
 )
 
-func (h *Handlers) handleUnlock(ctx context.Context, jobID string, cmd *terraplanev1.UnlockCommand) {
+func (h *Handlers) handleUnlock(ctx context.Context, cmd *command.UnlockCommand) {
+	jobID := cmd.JobID
 	h.logger.Info(
 		"Running terraplane unlock",
 		"job_id", jobID,
-		"repo", cmd.GetRepo(),
-		"pr", cmd.GetPrNumber(),
+		"repo", cmd.Repo,
+		"pr", cmd.PRNumber,
 	)
 
 	// TODO: release terraform state lock
-	result := &terraplanev1.UnlockResult{
-		Success: true,
-		Output:  fmt.Sprintf("stub unlock for repository %s pull request #%d", cmd.GetRepo(), cmd.GetPrNumber()),
-	}
+	output := fmt.Sprintf("stub unlock for repository %s pull request #%d", cmd.Repo, cmd.PRNumber)
 
-	if err := h.writeUnlockResult(ctx, jobID, result); err != nil {
+	if err := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, true, output, ""); err != nil {
 		h.logger.Error(
-			"Failed to send unlock result to orchestrator",
+			"Failed to submit unlock result to orchestrator",
 			"job_id", jobID,
-			"repo", cmd.GetRepo(),
+			"agent_id", h.agentID,
+			"repo", cmd.Repo,
 			"error", err,
 		)
 	}

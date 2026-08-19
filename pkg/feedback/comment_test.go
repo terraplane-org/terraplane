@@ -87,6 +87,26 @@ func TestPlanResultComment(t *testing.T) {
 	})
 }
 
+func TestJobResultComment(t *testing.T) {
+	t.Run("apply action", func(t *testing.T) {
+		job := &models.Job{
+			StackName: "stg-foundation",
+			Action:    models.JobActionApply,
+			Dir:       "terraform/stg",
+			CommitSHA: "deadbeef",
+		}
+		output := "Apply complete! Resources: 1 added, 0 changed, 0 destroyed.\n"
+		got := feedback.JobResultComment(job, true, output, "")
+		require.Contains(t, got, "### `stg-foundation` · apply · ✅ passed")
+	})
+
+	t.Run("plan action by default", func(t *testing.T) {
+		job := &models.Job{StackName: "stg-foundation"}
+		got := feedback.JobResultComment(job, true, "", "")
+		require.Contains(t, got, "### `stg-foundation` · plan · ✅ passed")
+	})
+}
+
 func TestApplyResultComment(t *testing.T) {
 	job := &models.Job{
 		StackName: "stg-foundation",

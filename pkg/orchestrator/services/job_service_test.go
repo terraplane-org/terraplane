@@ -23,11 +23,12 @@ import (
 
 type JobServiceSuite struct {
 	suite.Suite
-	ctrl  *gomock.Controller
-	scm   *mock_scm.MockProvider
-	jobs  *mock_repository.MockJobRepository
-	locks *mock_repository.MockLockRepository
-	svc   services.JobService
+	ctrl      *gomock.Controller
+	scm       *mock_scm.MockProvider
+	publisher *mock_scm.MockPublisher
+	jobs      *mock_repository.MockJobRepository
+	locks     *mock_repository.MockLockRepository
+	svc       services.JobService
 }
 
 func TestJobServiceSuite(t *testing.T) {
@@ -37,9 +38,10 @@ func TestJobServiceSuite(t *testing.T) {
 func (s *JobServiceSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
+	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
 	s.locks = mock_repository.NewMockLockRepository(s.ctrl)
-	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, &config.Config{OrchestratorJobLease: time.Minute})
+	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{OrchestratorJobLease: time.Minute})
 }
 
 func webhook(comment string) *scm.Webhook {
@@ -277,122 +279,131 @@ func claimedJob(action models.JobAction, payload string) *models.Job {
 	}
 }
 
-func (s *JobServiceSuite) expectClaim(jobs []*models.Job, err error) {
-	s.jobs.EXPECT().ClaimPendingJobsForAgents(
+func (s *JobServiceSuite) expectClaim(job *models.Job, err error) {
+	s.jobs.EXPECT().ClaimPendingJobForAgent(
 		gomock.Any(),
-		[]string{"agent-a"},
+		"agent-a",
 		models.JobStatusClaimed,
 		gomock.Any(),
-	).Return(jobs, err)
+	).Return(job, err)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsEmptyAgents() {
-	s.jobs.EXPECT().ClaimPendingJobsForAgents(
+func (s *JobServiceSuite) requireLeaseAboutOneMinute(lease *time.Time, from time.Time) {
+	s.T().Helper()
+	require.NotNil(s.T(), lease)
+	require.WithinDuration(s.T(), from.Add(time.Minute), *lease, 2*time.Second)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobEmptyAgent() {
+	before := time.Now()
+	s.jobs.EXPECT().ClaimPendingJobForAgent(
 		gomock.Any(),
-		nil,
+		"",
 		models.JobStatusClaimed,
 		gomock.Any(),
-	).Return(nil, nil)
+	).DoAndReturn(func(_ context.Context, _ string, _ models.JobStatus, lease *time.Time) (*models.Job, error) {
+		s.requireLeaseAboutOneMinute(lease, before)
+		return nil, nil
+	})
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), nil)
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "")
 	require.NoError(s.T(), err)
-	require.Empty(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsRepositoryError() {
+func (s *JobServiceSuite) TestClaimPendingJobRepositoryError() {
 	s.expectClaim(nil, errors.New("db down"))
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsPlan() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobPlan() {
+	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Len(s.T(), cmds, 1)
-	require.Equal(s.T(), command.KindPlan, cmds[0].Kind)
-	require.Equal(s.T(), "acme/infra", cmds[0].Plan.Repo)
-	require.Equal(s.T(), 42, cmds[0].Plan.PRNumber)
-	require.Equal(s.T(), "abc123", cmds[0].Plan.CommitSHA)
-	require.Equal(s.T(), "jace", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "agent-a", cmds[0].Plan.Agent)
-	require.Equal(s.T(), "job-1", cmds[0].Plan.JobID)
-	require.Equal(s.T(), "stacks/a", cmds[0].Plan.Dir)
-	require.Equal(s.T(), []string{"a"}, cmds[0].Plan.Stacks)
-	require.Equal(s.T(), "-target=x", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), command.KindPlan, cmd.Kind)
+	require.Equal(s.T(), "acme/infra", cmd.Plan.Repo)
+	require.Equal(s.T(), 42, cmd.Plan.PRNumber)
+	require.Equal(s.T(), "abc123", cmd.Plan.CommitSHA)
+	require.Equal(s.T(), "jace", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "agent-a", cmd.Plan.Agent)
+	require.Equal(s.T(), "job-1", cmd.Plan.JobID)
+	require.Equal(s.T(), "stacks/a", cmd.Plan.Dir)
+	require.Equal(s.T(), []string{"a"}, cmd.Plan.Stacks)
+	require.Equal(s.T(), "-target=x", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsApply() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionApply, `{"trigger_user":"jace"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobApply() {
+	s.expectClaim(claimedJob(models.JobActionApply, `{"trigger_user":"jace"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), command.KindApply, cmds[0].Kind)
-	require.Equal(s.T(), "agent-a", cmds[0].Apply.Agent)
-	require.Equal(s.T(), "stacks/a", cmds[0].Apply.Dir)
-	require.Equal(s.T(), []string{"a"}, cmds[0].Apply.Stacks)
+	require.Equal(s.T(), command.KindApply, cmd.Kind)
+	require.Equal(s.T(), "agent-a", cmd.Apply.Agent)
+	require.Equal(s.T(), "stacks/a", cmd.Apply.Dir)
+	require.Equal(s.T(), []string{"a"}, cmd.Apply.Stacks)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsUnlock() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionUnlock, `{"trigger_user":"jace"}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobUnlock() {
+	s.expectClaim(claimedJob(models.JobActionUnlock, `{"trigger_user":"jace"}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), command.KindUnlock, cmds[0].Kind)
-	require.Equal(s.T(), "agent-a", cmds[0].Unlock.Agent)
-	require.Equal(s.T(), "stacks/a", cmds[0].Unlock.Dir)
+	require.Equal(s.T(), command.KindUnlock, cmd.Kind)
+	require.Equal(s.T(), "agent-a", cmd.Unlock.Agent)
+	require.Equal(s.T(), "stacks/a", cmd.Unlock.Dir)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsEmptyPayload() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobEmptyPayload() {
+	s.expectClaim(claimedJob(models.JobActionPlan, ""), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), "", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsPayloadNonStringFields() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, `{"trigger_user":1,"plan_flags":null}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobPayloadNonStringFields() {
+	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":1,"plan_flags":null}`), nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
-	require.Equal(s.T(), "", cmds[0].Plan.TriggerUser)
-	require.Equal(s.T(), "", cmds[0].Plan.PlanFlags)
+	require.Equal(s.T(), "", cmd.Plan.TriggerUser)
+	require.Equal(s.T(), "", cmd.Plan.PlanFlags)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsInvalidPayloadMarksFailed() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "{")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadMarksFailed() {
+	s.expectClaim(claimedJob(models.JobActionPlan, "{"), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "invalid payload")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsInvalidPayloadFailErrorIsWrapped() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobActionPlan, "{")}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadFailErrorIsWrapped() {
+	s.expectClaim(claimedJob(models.JobActionPlan, "{"), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(errors.New("db"))
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "invalid payload")
 	require.Contains(s.T(), err.Error(), "also failed to mark job failed")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
-func (s *JobServiceSuite) TestClaimPendingJobsUnknownActionMarksFailed() {
-	s.expectClaim([]*models.Job{claimedJob(models.JobAction("nope"), `{}`)}, nil)
+func (s *JobServiceSuite) TestClaimPendingJobUnknownActionMarksFailed() {
+	s.expectClaim(claimedJob(models.JobAction("nope"), `{}`), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
 
-	cmds, err := s.svc.ClaimPendingJobs(context.Background(), []string{"agent-a"})
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "unknown job action")
-	require.Nil(s.T(), cmds)
+	require.Nil(s.T(), cmd)
 }
 
 func (s *JobServiceSuite) TestReleaseClaim() {
@@ -412,17 +423,242 @@ func (s *JobServiceSuite) TestFailClaimedJob() {
 }
 
 func (s *JobServiceSuite) TestReapExpiredClaimsNone() {
-	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(0, nil)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{}, nil)
 	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
 }
 
 func (s *JobServiceSuite) TestReapExpiredClaimsSome() {
-	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(2, nil)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		ClaimedReturned: 2,
+	}, nil)
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+}
+
+func (s *JobServiceSuite) TestReapExpiredClaimsRunningApplyReleasesLock() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		RunningFailed: []*models.Job{job},
+	}, nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+}
+
+func (s *JobServiceSuite) TestReapExpiredClaimsRunningApplyLockReleaseFailureIsBestEffort() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		RunningFailed: []*models.Job{job},
+	}, nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
+
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+}
+
+func (s *JobServiceSuite) TestReapExpiredClaimsRunningPlanDoesNotReleaseLock() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		RunningFailed: []*models.Job{job},
+	}, nil)
+
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+}
+
+func (s *JobServiceSuite) TestReapExpiredClaimsNilResult() {
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(nil, nil)
 	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
 }
 
 func (s *JobServiceSuite) TestReapExpiredClaimsError() {
-	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(0, errors.New("db"))
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(nil, errors.New("db"))
 	err := s.svc.ReapExpiredClaims(context.Background())
 	require.Error(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestRefreshAgentClaims() {
+	before := time.Now()
+	s.jobs.EXPECT().RefreshAgentClaims(gomock.Any(), "agent-a", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, lease *time.Time) error {
+			s.requireLeaseAboutOneMinute(lease, before)
+			return nil
+		},
+	)
+	require.NoError(s.T(), s.svc.RefreshAgentClaims(context.Background(), "agent-a"))
+}
+
+func (s *JobServiceSuite) TestRefreshAgentClaimsError() {
+	s.jobs.EXPECT().RefreshAgentClaims(gomock.Any(), "agent-a", gomock.Any()).Return(errors.New("db"))
+	err := s.svc.RefreshAgentClaims(context.Background(), "agent-a")
+	require.Error(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestAckJob() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusRunning, updated.Status)
+			return nil
+		},
+	)
+	require.NoError(s.T(), s.svc.AckJob(context.Background(), "job-1", "agent-a"))
+}
+
+func (s *JobServiceSuite) TestAckJobWrongAgent() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	err := s.svc.AckJob(context.Background(), "job-1", "other-agent")
+	require.ErrorIs(s.T(), err, services.ErrJobWrongAgent)
+}
+
+func (s *JobServiceSuite) TestAckJobWrongStatus() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusRunning
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	err := s.svc.AckJob(context.Background(), "job-1", "agent-a")
+	require.ErrorIs(s.T(), err, services.ErrJobInvalidStatus)
+}
+
+func (s *JobServiceSuite) TestAckJobGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.AckJob(context.Background(), "job-1", "agent-a")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
+}
+
+func (s *JobServiceSuite) TestAckJobUpdateFailure() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	err := s.svc.AckJob(context.Background(), "job-1", "agent-a")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to update job")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultWrongAgent() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "other-agent", "success", "", "")
+	require.ErrorIs(s.T(), err, services.ErrJobWrongAgent)
+}
+
+func (s *JobServiceSuite) TestCommitJobResultWrongStatus() {
+	job := resultJob(models.JobActionPlan)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
+	require.ErrorIs(s.T(), err, services.ErrJobInvalidStatus)
+}
+
+func resultJob(action models.JobAction) *models.Job {
+	job := claimedJob(action, `{}`)
+	job.Status = models.JobStatusRunning
+	return job
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusSucceeded, updated.Status)
+			require.Equal(s.T(), "plan out", updated.Output)
+			require.Empty(s.T(), updated.ErrorMsg)
+			return nil
+		},
+	)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanFailure() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusFailed, updated.Status)
+			require.Equal(s.T(), "boom", updated.ErrorMsg)
+			return nil
+		},
+	)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "boom"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplySuccessReleasesLock() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "apply out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyFailureStillReleasesLock() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "apply boom"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyUpdateFailureStillAttemptsLockRelease() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to update job")
+	require.NotContains(s.T(), err.Error(), "also failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyUpdateAndLockReleaseFailure() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "also failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyLockReleaseFailureAfterUpdate() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
 }

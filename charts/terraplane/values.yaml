@@ -69,7 +69,7 @@ agentDefaults:
   env: {}
   # -- Shared envFrom for all agents (concatenated with per-agent envFrom)
   envFrom: []
-  # -- WebSocket URL agents use to reach the orchestrator (required when agents is non-empty). Example: wss://terraplane.example.com/ws
+  # -- HTTP(S) base URL agents use to reach the orchestrator (required when agents is non-empty). Example: https://terraplane.example.com
   orchestratorURL: ""
   # -- Existing ServiceAccount name for agent pods (chart does not create it)
   serviceAccountName: ""

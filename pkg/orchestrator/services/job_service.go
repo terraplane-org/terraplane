@@ -9,6 +9,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/command"
+	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -20,10 +21,13 @@ const applyLockWorkspace = "default"
 
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
-	ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error)
+	ClaimPendingJob(ctx context.Context, agentID string) (*command.Command, error)
 	ReleaseClaim(ctx context.Context, jobID string) error
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context) error
+	RefreshAgentClaims(ctx context.Context, agentID string) error
+	AckJob(ctx context.Context, jobID, agentID string) error
+	CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error
 }
 
 type jobService struct {
@@ -31,6 +35,7 @@ type jobService struct {
 	jobRepository  repository.JobRepository
 	lockRepository repository.LockRepository
 	scmProvider    scm.Provider
+	scmPublisher   scm.Publisher
 	jobLease       time.Duration
 }
 
@@ -39,6 +44,7 @@ func NewJobService(
 	jobRepository repository.JobRepository,
 	lockRepository repository.LockRepository,
 	scmProvider scm.Provider,
+	scmPublisher scm.Publisher,
 	config *config.Config,
 ) JobService {
 	return &jobService{
@@ -46,6 +52,7 @@ func NewJobService(
 		jobRepository:  jobRepository,
 		lockRepository: lockRepository,
 		scmProvider:    scmProvider,
+		scmPublisher:   scmPublisher,
 		jobLease:       config.OrchestratorJobLease,
 	}
 }
@@ -169,25 +176,24 @@ func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook,
 	return false, nil
 }
 
-func (j *jobService) ClaimPendingJobs(ctx context.Context, agents []string) ([]command.Command, error) {
+func (j *jobService) ClaimPendingJob(ctx context.Context, agentID string) (*command.Command, error) {
 	expires := time.Now().Add(j.jobLease)
-	jobs, err := j.jobRepository.ClaimPendingJobsForAgents(ctx, agents, models.JobStatusClaimed, &expires)
+	job, err := j.jobRepository.ClaimPendingJobForAgent(ctx, agentID, models.JobStatusClaimed, &expires)
 	if err != nil {
 		return nil, err
 	}
-
-	commands := make([]command.Command, 0, len(jobs))
-	for _, job := range jobs {
-		cmd, err := j.commandFromJob(job)
-		if err != nil {
-			if failErr := j.jobRepository.FailClaimedJob(ctx, job.ID, err.Error()); failErr != nil {
-				return nil, fmt.Errorf("%w (also failed to mark job failed: %v)", err, failErr)
-			}
-			return nil, err
-		}
-		commands = append(commands, cmd)
+	if job == nil {
+		return nil, nil
 	}
-	return commands, nil
+
+	cmd, err := j.commandFromJob(job)
+	if err != nil {
+		if failErr := j.jobRepository.FailClaimedJob(ctx, job.ID, err.Error()); failErr != nil {
+			return nil, fmt.Errorf("%w (also failed to mark job failed: %v)", err, failErr)
+		}
+		return nil, err
+	}
+	return &cmd, nil
 }
 
 func (j *jobService) ReleaseClaim(ctx context.Context, jobID string) error {
@@ -199,13 +205,123 @@ func (j *jobService) FailClaimedJob(ctx context.Context, jobID, errMsg string) e
 }
 
 func (j *jobService) ReapExpiredClaims(ctx context.Context) error {
-	n, err := j.jobRepository.ReapExpiredClaims(ctx, time.Now())
+	result, err := j.jobRepository.ReapExpiredClaims(ctx, time.Now())
 	if err != nil {
 		return err
 	}
-	if n > 0 {
-		j.logger.Info("Reaped expired claimed jobs", "count", n)
+	if result == nil {
+		return nil
 	}
+
+	for _, job := range result.RunningFailed {
+		if job.Action != models.JobActionApply {
+			continue
+		}
+		if err := j.releaseApplyLock(ctx, job, job.ID); err != nil {
+			j.logger.Error(
+				"Failed to release lock for reaped running apply job",
+				"job_id", job.ID,
+				"repo", job.Repo,
+				"stack", job.StackName,
+				"error", err,
+			)
+		}
+	}
+
+	n := result.ClaimedReturned + len(result.RunningFailed)
+	if n > 0 {
+		j.logger.Info(
+			"Reaped expired job claims",
+			"count", n,
+			"claimed_returned", result.ClaimedReturned,
+			"running_failed", len(result.RunningFailed),
+		)
+	}
+	return nil
+}
+
+func (j *jobService) RefreshAgentClaims(ctx context.Context, agentID string) error {
+	expires := time.Now().Add(j.jobLease)
+	return j.jobRepository.RefreshAgentClaims(ctx, agentID, &expires)
+}
+
+func (j *jobService) AckJob(ctx context.Context, jobID, agentID string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+	if err := validateJobAgent(job, agentID); err != nil {
+		return err
+	}
+	if job.Status != models.JobStatusClaimed {
+		return fmt.Errorf("%w: job %s is %s, expected claimed", ErrJobInvalidStatus, jobID, job.Status)
+	}
+
+	job.Status = models.JobStatusRunning
+	if err := j.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s status to running: %w", jobID, err)
+	}
+	return nil
+}
+
+func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+	if err := validateJobAgent(job, agentID); err != nil {
+		return err
+	}
+	if job.Status != models.JobStatusRunning {
+		return fmt.Errorf("%w: job %s is %s, expected running", ErrJobInvalidStatus, jobID, job.Status)
+	}
+
+	success := result == "success"
+	if success {
+		job.Status = models.JobStatusSucceeded
+	} else {
+		job.Status = models.JobStatusFailed
+	}
+	job.Output = output
+	job.ErrorMsg = errMsg
+
+	if err := j.jobRepository.Update(ctx, job); err != nil {
+		if job.Action == models.JobActionApply {
+			if releaseErr := j.releaseApplyLock(ctx, job, jobID); releaseErr != nil {
+				return fmt.Errorf(
+					"failed to update job %s with result: %w (also failed to release lock: %v)",
+					jobID, err, releaseErr,
+				)
+			}
+		}
+		return fmt.Errorf("failed to update job %s with result: %w", jobID, err)
+	}
+
+	if job.Action == models.JobActionApply {
+		if err := j.releaseApplyLock(ctx, job, jobID); err != nil {
+			return err
+		}
+	}
+
+	comment := feedback.JobResultComment(job, success, output, errMsg)
+	if err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+		j.logger.Error(
+			"Failed to write job result comment",
+			"job_id", jobID,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+	return nil
+}
+
+func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {
+	if err := j.lockRepository.Delete(ctx, job.Repo, job.StackName, applyLockWorkspace); err != nil {
+		return fmt.Errorf("failed to release lock for job %s stack %q: %w", jobID, job.StackName, err)
+	}
+	j.logger.Debug("Released lock for job", "job_id", jobID, "repo", job.Repo, "stack", job.StackName)
 	return nil
 }
 
@@ -301,4 +417,11 @@ func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]strin
 		action = string(models.JobActionUnlock)
 	}
 	return stacks, environments, action
+}
+
+func validateJobAgent(job *models.Job, agentID string) error {
+	if agentID == "" || job.AgentID != agentID {
+		return fmt.Errorf("%w: job %s belongs to agent %q, not %q", ErrJobWrongAgent, job.ID, job.AgentID, agentID)
+	}
+	return nil
 }
