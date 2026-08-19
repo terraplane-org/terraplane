@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	models "github.com/xyzjace/terraplane/pkg/storage/models"
+	repository "github.com/xyzjace/terraplane/pkg/storage/repository"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -130,10 +131,10 @@ func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 }
 
 // ReapExpiredClaims mocks base method.
-func (m *MockJobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (int, error) {
+func (m *MockJobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (*repository.ReapExpiredClaimsResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReapExpiredClaims", ctx, now)
-	ret0, _ := ret[0].(int)
+	ret0, _ := ret[0].(*repository.ReapExpiredClaimsResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

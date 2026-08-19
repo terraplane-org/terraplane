@@ -97,7 +97,7 @@ func TestRefreshAgentClaimsExtendsClaimedAndRunningLeases(t *testing.T) {
 	require.Equal(t, oldLease.UTC().Truncate(time.Second), getJob(t, repo, succeeded.ID).LeaseExpiresAt.UTC().Truncate(time.Second))
 }
 
-func TestReapExpiredClaimsReturnsClaimedJobsToPending(t *testing.T) {
+func TestReapExpiredClaimsReturnsClaimedJobsToPendingAndFailsRunning(t *testing.T) {
 	repo := testJobRepo(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	expired := createJob(t, repo, &models.Job{
@@ -116,9 +116,11 @@ func TestReapExpiredClaimsReturnsClaimedJobsToPending(t *testing.T) {
 		Status: models.JobStatusRunning, LeaseExpiresAt: ptrTime(now.Add(-time.Second)),
 	})
 
-	n, err := repo.ReapExpiredClaims(context.Background(), now)
+	result, err := repo.ReapExpiredClaims(context.Background(), now)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, result.ClaimedReturned)
+	require.Len(t, result.RunningFailed, 1)
+	require.Equal(t, runningExpired.ID, result.RunningFailed[0].ID)
 
 	got := getJob(t, repo, expired.ID)
 	require.Equal(t, models.JobStatusPending, got.Status)
@@ -133,8 +135,9 @@ func TestReapExpiredClaimsReturnsClaimedJobsToPending(t *testing.T) {
 	require.Nil(t, got.LeaseExpiresAt)
 
 	got = getJob(t, repo, runningExpired.ID)
-	require.Equal(t, models.JobStatusRunning, got.Status)
-	require.NotNil(t, got.LeaseExpiresAt)
+	require.Equal(t, models.JobStatusFailed, got.Status)
+	require.Equal(t, leaseExpiredRunningMsg, got.ErrorMsg)
+	require.Nil(t, got.LeaseExpiresAt)
 }
 
 func TestClaimPendingJobForAgentSetsLease(t *testing.T) {

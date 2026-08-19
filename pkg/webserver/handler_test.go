@@ -66,11 +66,11 @@ func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
 	s.refreshed = append(s.refreshed, agentID)
 	return s.refreshErr
 }
-func (s *stubJobs) AckJob(_ context.Context, jobID string) error {
+func (s *stubJobs) AckJob(_ context.Context, jobID, agentID string) error {
 	s.acked = append(s.acked, jobID)
 	return s.ackErr
 }
-func (s *stubJobs) CommitJobResult(_ context.Context, jobID, result, output, errMsg string) error {
+func (s *stubJobs) CommitJobResult(_ context.Context, jobID, agentID, result, output, errMsg string) error {
 	s.committed = append(s.committed, commitCall{
 		jobID: jobID, result: result, output: output, errMsg: errMsg,
 	})

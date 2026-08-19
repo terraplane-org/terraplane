@@ -131,11 +131,11 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 
 	planJob := &models.Job{
 		ID: "plan-1", Repo: "acme/infra", PRNumber: 2, StackName: "a",
-		Action: models.JobActionPlan, Status: models.JobStatusRunning,
+		AgentID: "agent-1", Action: models.JobActionPlan, Status: models.JobStatusRunning,
 	}
 	applyJob := &models.Job{
 		ID: "apply-1", Repo: "acme/infra", PRNumber: 2, StackName: "a",
-		Action: models.JobActionApply, Status: models.JobStatusRunning,
+		AgentID: "agent-1", Action: models.JobActionApply, Status: models.JobStatusRunning,
 	}
 	processed := make(chan struct{})
 

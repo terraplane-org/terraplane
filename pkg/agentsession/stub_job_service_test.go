@@ -18,8 +18,8 @@ func (noopJobService) ReleaseClaim(context.Context, string) error           { re
 func (noopJobService) FailClaimedJob(context.Context, string, string) error { return nil }
 func (noopJobService) ReapExpiredClaims(context.Context) error              { return nil }
 func (noopJobService) RefreshAgentClaims(context.Context, string) error     { return nil }
-func (noopJobService) AckJob(context.Context, string) error                 { return nil }
-func (noopJobService) CommitJobResult(context.Context, string, string, string, string) error {
+func (noopJobService) AckJob(context.Context, string, string) error         { return nil }
+func (noopJobService) CommitJobResult(context.Context, string, string, string, string, string) error {
 	return nil
 }
 
@@ -31,7 +31,7 @@ type signalAckJobService struct {
 	done chan struct{}
 }
 
-func (s *signalAckJobService) AckJob(context.Context, string) error {
+func (s *signalAckJobService) AckJob(context.Context, string, string) error {
 	if s.done != nil {
 		close(s.done)
 	}

@@ -208,7 +208,7 @@ func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := r.PathValue("id")
-	if err := h.jobService.AckJob(r.Context(), jobID); err != nil {
+	if err := h.jobService.AckJob(r.Context(), jobID, payload.AgentID); err != nil {
 		h.logger.Error("Failed to ack job", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to ack job")
 		return
@@ -226,7 +226,7 @@ func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	jobID := r.PathValue("id")
-	if err := h.jobService.CommitJobResult(r.Context(), jobID, payload.Result, payload.Output, payload.Error); err != nil {
+	if err := h.jobService.CommitJobResult(r.Context(), jobID, payload.AgentID, payload.Result, payload.Output, payload.Error); err != nil {
 		h.logger.Error("Failed to commit job result", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to commit job result")
 		return
