@@ -10,21 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/config"
-	"github.com/xyzjace/terraplane/pkg/agentsession"
-	"github.com/xyzjace/terraplane/pkg/agentsession/mock_agentsession"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
-	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/webserver"
-	"github.com/xyzjace/terraplane/pkg/wsproto"
 )
 
 type stubJobs struct {
@@ -77,33 +72,11 @@ func (s *stubJobs) CommitJobResult(_ context.Context, jobID, agentID, result, ou
 	return s.commitErr
 }
 
-type stubFactory struct {
-	session agentsession.Session
-}
-
-func (f stubFactory) New(string, *websocket.Conn) agentsession.Session { return f.session }
-
-type stubSession struct {
-	id     string
-	runErr error
-	runCh  chan struct{}
-}
-
-func (s *stubSession) ID() string { return s.id }
-func (s *stubSession) Run(context.Context) error {
-	if s.runCh != nil {
-		close(s.runCh)
-	}
-	return s.runErr
-}
-func (s *stubSession) Write(context.Context, *terraplanev1.TerraformEnvelope) error { return nil }
-
 type HandlerSuite struct {
 	suite.Suite
 	ctrl      *gomock.Controller
 	scm       *mock_scm.MockProvider
 	publisher *mock_scm.MockPublisher
-	registry  agentsession.Registry
 	jobs      *stubJobs
 	handler   http.Handler
 }
@@ -116,18 +89,15 @@ func (s *HandlerSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
 	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
-	s.registry = agentsession.NewRegistry(log.Noop())
 	s.jobs = &stubJobs{called: make(chan *scm.Webhook, 8)}
-	s.handler = s.newHandler(s.registry, stubFactory{session: &stubSession{id: "agent-1"}})
+	s.handler = s.newHandler()
 }
 
-func (s *HandlerSuite) newHandler(registry agentsession.Registry, factory agentsession.Factory) http.Handler {
+func (s *HandlerSuite) newHandler() http.Handler {
 	return webserver.NewHandler(
 		log.Noop(),
 		s.scm,
 		s.publisher,
-		registry,
-		factory,
 		s.jobs,
 		&config.Config{SharedAuthToken: "secret"},
 	)
@@ -213,7 +183,6 @@ func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 }
 
 func (s *HandlerSuite) TestWebhookServiceErrorsAreLoggedNotReturned() {
-	// Intention: webhook ACK stays 200 even when enqueue fails.
 	s.jobs.err = errors.New("upsert failed")
 
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
@@ -259,22 +228,17 @@ func (s *HandlerSuite) TestWebhookAcknowledgeFailureStillEnqueues() {
 
 func (s *HandlerSuite) TestBearerRequiredOnAgentRoutes() {
 	paths := []string{
-		"/ws",
 		"/agent/jobs/claim",
 		"/agent/jobs/job-1/heartbeat",
 		"/agent/jobs/job-1/ack",
 		"/agent/jobs/job-1/result",
 	}
 	for _, path := range paths {
-		method := http.MethodPost
-		if path == "/ws" {
-			method = http.MethodGet
-		}
 		rec := httptest.NewRecorder()
-		s.handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+		s.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
 		require.Equal(s.T(), http.StatusUnauthorized, rec.Code, path)
 
-		req := httptest.NewRequest(method, path, nil)
+		req := httptest.NewRequest(http.MethodPost, path, nil)
 		req.Header.Set("Authorization", "Bearer wrong")
 		rec = httptest.NewRecorder()
 		s.handler.ServeHTTP(rec, req)
@@ -421,156 +385,6 @@ func (s *HandlerSuite) TestAgentResultServiceError() {
 	}}, s.jobs.committed)
 }
 
-func (s *HandlerSuite) TestWebsocketAcceptFailure() {
-	// httptest.ResponseRecorder cannot hijack, so websocket.Accept fails.
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	rec := httptest.NewRecorder()
-	s.handler.ServeHTTP(rec, req)
-}
-
-func (s *HandlerSuite) TestWebsocketHappyPath() {
-	runCh := make(chan struct{})
-	sess := &stubSession{id: "agent-42", runCh: runCh}
-	s.handler = s.newHandler(s.registry, stubFactory{session: sess})
-
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	s.T().Cleanup(func() { _ = conn.CloseNow() })
-
-	require.NoError(s.T(), wsproto.Write(ctx, conn, &terraplanev1.WebsocketEnvelope{
-		Payload: &terraplanev1.WebsocketEnvelope_Hello{
-			Hello: &terraplanev1.Hello{AgentId: "agent-42"},
-		},
-	}))
-
-	select {
-	case <-runCh:
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for session.Run")
-	}
-
-	got, err := s.registry.Get(ctx, "agent-42")
-	require.NoError(s.T(), err)
-	require.NotNil(s.T(), got)
-	require.Equal(s.T(), "agent-42", got.ID())
-}
-
-func (s *HandlerSuite) TestWebsocketMissingHelloPayload() {
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	s.T().Cleanup(func() { _ = conn.CloseNow() })
-
-	// Goodbye is not a hello.
-	require.NoError(s.T(), wsproto.Write(ctx, conn, &terraplanev1.WebsocketEnvelope{
-		Payload: &terraplanev1.WebsocketEnvelope_Goodbye{
-			Goodbye: &terraplanev1.Goodbye{AgentId: "x"},
-		},
-	}))
-
-	_, _, readErr := conn.Read(ctx)
-	require.Error(s.T(), readErr)
-}
-
-func (s *HandlerSuite) TestWebsocketEmptyAgentID() {
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	s.T().Cleanup(func() { _ = conn.CloseNow() })
-
-	require.NoError(s.T(), wsproto.Write(ctx, conn, &terraplanev1.WebsocketEnvelope{
-		Payload: &terraplanev1.WebsocketEnvelope_Hello{
-			Hello: &terraplanev1.Hello{AgentId: ""},
-		},
-	}))
-
-	_, _, readErr := conn.Read(ctx)
-	require.Error(s.T(), readErr)
-}
-
-func (s *HandlerSuite) TestWebsocketHelloReadFailure() {
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	_ = conn.CloseNow()
-}
-
-func (s *HandlerSuite) TestWebsocketRegisterFailure() {
-	reg := mock_agentsession.NewMockRegistry(s.ctrl)
-	reg.EXPECT().Register(gomock.Any(), gomock.Any()).Return(errors.New("registry full"))
-
-	s.handler = s.newHandler(reg, stubFactory{session: &stubSession{id: "agent-1"}})
-
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	s.T().Cleanup(func() { _ = conn.CloseNow() })
-
-	require.NoError(s.T(), wsproto.Write(ctx, conn, &terraplanev1.WebsocketEnvelope{
-		Payload: &terraplanev1.WebsocketEnvelope_Hello{
-			Hello: &terraplanev1.Hello{AgentId: "agent-1"},
-		},
-	}))
-
-	_, _, readErr := conn.Read(ctx)
-	require.Error(s.T(), readErr)
-}
-
-func (s *HandlerSuite) TestWebsocketSessionRunErrorIsLogged() {
-	runCh := make(chan struct{})
-	sess := &stubSession{id: "agent-err", runErr: errors.New("session boom"), runCh: runCh}
-	s.handler = s.newHandler(s.registry, stubFactory{session: sess})
-
-	srv := httptest.NewServer(s.handler)
-	s.T().Cleanup(srv.Close)
-
-	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer secret"}},
-	})
-	require.NoError(s.T(), err)
-	s.T().Cleanup(func() { _ = conn.CloseNow() })
-
-	require.NoError(s.T(), wsproto.Write(ctx, conn, &terraplanev1.WebsocketEnvelope{
-		Payload: &terraplanev1.WebsocketEnvelope_Hello{
-			Hello: &terraplanev1.Hello{AgentId: "agent-err"},
-		},
-	}))
-
-	select {
-	case <-runCh:
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for session.Run")
-	}
-}
-
 func TestServerStartShutdown(t *testing.T) {
 	cfg := &config.Config{
 		OrchestratorListenAddress: "127.0.0.1",
@@ -585,7 +399,6 @@ func TestServerStartShutdown(t *testing.T) {
 	started := make(chan error, 1)
 	go func() { started <- srv.Start(ctx) }()
 
-	// Give ListenAndServe a moment to bind.
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 

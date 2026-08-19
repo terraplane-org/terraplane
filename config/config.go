@@ -16,9 +16,6 @@ type Config struct {
 	OrchestratorListenPort                int           `mapstructure:"ORCHESTRATOR_LISTEN_PORT"`
 	OrchestratorGithubWebhookSecret       string        `mapstructure:"ORCHESTRATOR_GITHUB_WEBHOOK_SECRET"`
 	OrchestratorGithubAccessToken         string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
-	OrchestratorAgentPingInterval         time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PING_INTERVAL"`
-	OrchestratorAgentPongTimeout          time.Duration `mapstructure:"ORCHESTRATOR_AGENT_PONG_TIMEOUT"`
-	OrchestratorAgentMissedHeartbeats     int           `mapstructure:"ORCHESTRATOR_AGENT_MISSED_HEARTBEATS"`
 	OrchestratorDispatcherJobPollInterval time.Duration `mapstructure:"ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL"`
 	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
 	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
@@ -70,9 +67,6 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_LISTEN_PORT", 8080)
 	viper.SetDefault("ORCHESTRATOR_GITHUB_WEBHOOK_SECRET", "")
 	viper.SetDefault("ORCHESTRATOR_GITHUB_ACCESS_TOKEN", "")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PING_INTERVAL", "30s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_PONG_TIMEOUT", "3s")
-	viper.SetDefault("ORCHESTRATOR_AGENT_MISSED_HEARTBEATS", 2)
 	viper.SetDefault("ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL", "5s")
 	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
