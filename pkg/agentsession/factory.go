@@ -6,6 +6,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 )
@@ -35,6 +36,7 @@ type factory struct {
 	jobRepository  repository.JobRepository
 	lockRepository repository.LockRepository
 	scmPublisher   scm.Publisher
+	jobService     services.JobService
 	heartbeat      HeartbeatConfig
 }
 
@@ -44,6 +46,7 @@ func NewFactory(
 	jobRepository repository.JobRepository,
 	lockRepository repository.LockRepository,
 	scmPublisher scm.Publisher,
+	jobService services.JobService,
 	cfg *config.Config,
 ) Factory {
 	return &factory{
@@ -52,6 +55,7 @@ func NewFactory(
 		jobRepository:  jobRepository,
 		lockRepository: lockRepository,
 		scmPublisher:   scmPublisher,
+		jobService:     jobService,
 		heartbeat:      HeartbeatConfigFrom(cfg),
 	}
 }
@@ -69,6 +73,7 @@ func (f *factory) New(id string, conn *websocket.Conn) Session {
 		jobRepository:    f.jobRepository,
 		lockRepository:   f.lockRepository,
 		scmPublisher:     f.scmPublisher,
+		jobService:       f.jobService,
 		pingInterval:     f.heartbeat.Interval,
 		pongTimeout:      f.heartbeat.Timeout,
 		missedHeartbeats: missed,

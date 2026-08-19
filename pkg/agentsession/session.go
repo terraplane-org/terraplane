@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
@@ -38,6 +39,7 @@ type session struct {
 	jobRepository    repository.JobRepository
 	lockRepository   repository.LockRepository
 	scmPublisher     scm.Publisher
+	jobService       services.JobService
 	pingInterval     time.Duration
 	pongTimeout      time.Duration
 	missedHeartbeats int
@@ -216,18 +218,7 @@ func drainTimer(t *time.Timer) {
 }
 
 func (s *session) handleAck(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {
-	jobId := msg.GetJobId()
-	job, err := s.jobRepository.Get(ctx, jobId)
-	if err != nil {
-		return fmt.Errorf("failed to fetch job %s: %w", jobId, err)
-	}
-
-	job.Status = models.JobStatusRunning
-	if err := s.jobRepository.Update(ctx, job); err != nil {
-		return fmt.Errorf("failed to update job %s status to running: %w", jobId, err)
-	}
-
-	return nil
+	return s.jobService.AckJob(ctx, msg.GetJobId())
 }
 
 func (s *session) handlePlanResult(ctx context.Context, msg *terraplanev1.TerraformEnvelope) error {

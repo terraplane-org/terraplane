@@ -34,6 +34,8 @@ type stubJobs struct {
 	claimErr   error
 	refreshErr error
 	refreshed  []string
+	ackErr     error
+	acked      []string
 }
 
 func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
@@ -54,6 +56,10 @@ func (s *stubJobs) ReapExpiredClaims(context.Context) error { return nil }
 func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
 	s.refreshed = append(s.refreshed, agentID)
 	return s.refreshErr
+}
+func (s *stubJobs) AckJob(_ context.Context, jobID string) error {
+	s.acked = append(s.acked, jobID)
+	return s.ackErr
 }
 
 type stubFactory struct {
@@ -273,7 +279,7 @@ func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
 		rec := httptest.NewRecorder()
 		s.handler.ServeHTTP(rec, req)
 		want := http.StatusOK
-		if path == "/agent/jobs/job-1/heartbeat" {
+		if path == "/agent/jobs/job-1/heartbeat" || path == "/agent/jobs/job-1/ack" {
 			want = http.StatusNoContent
 		}
 		require.Equal(s.T(), want, rec.Code, path)
@@ -345,6 +351,25 @@ func (s *HandlerSuite) TestAgentHeartbeatServiceError() {
 	rec := s.agentPOST("/agent/jobs/job-1/heartbeat", `{"agent_id":"agent-dev"}`)
 	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
 	require.Equal(s.T(), []string{"agent-dev"}, s.jobs.refreshed)
+}
+
+func (s *HandlerSuite) TestAgentAckMarksJobRunning() {
+	rec := s.agentPOST("/agent/jobs/job-1/ack", `{"agent_id":"agent-dev"}`)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Equal(s.T(), []string{"job-1"}, s.jobs.acked)
+}
+
+func (s *HandlerSuite) TestAgentAckInvalidJSON() {
+	rec := s.agentPOST("/agent/jobs/job-1/ack", `{`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Empty(s.T(), s.jobs.acked)
+}
+
+func (s *HandlerSuite) TestAgentAckServiceError() {
+	s.jobs.ackErr = errors.New("db")
+	rec := s.agentPOST("/agent/jobs/job-1/ack", `{"agent_id":"agent-dev"}`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Equal(s.T(), []string{"job-1"}, s.jobs.acked)
 }
 
 func (s *HandlerSuite) TestWebsocketAcceptFailure() {
