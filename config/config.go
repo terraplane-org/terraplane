@@ -23,6 +23,7 @@ type Config struct {
 	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
 	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
+	AgentOrchestratorWSURL                string        `mapstructure:"AGENT_ORCHESTRATOR_WS_URL"`
 	AgentID                               string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath                    string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 	AgentWorkDir                          string        `mapstructure:"AGENT_WORK_DIR"`
@@ -75,6 +76,7 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://127.0.0.1:8080")
+	viper.SetDefault("AGENT_ORCHESTRATOR_WS_URL", "ws://127.0.0.1:8080/ws")
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 	viper.SetDefault("AGENT_WORK_DIR", "")

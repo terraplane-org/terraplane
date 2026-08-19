@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/auth"
+	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -23,21 +24,20 @@ type Manager interface {
 }
 
 type manager struct {
-	logger           log.Logger
-	orchestratorURL  string
-	id               string
-	sharedAuthToken  string
-	workspaceManager workspace.Manager
-	terraformManager terraform.Manager
+	logger             log.Logger
+	config             *config.Config
+	workspaceManager   workspace.Manager
+	terraformManager   terraform.Manager
+	orchestratorClient orchestrator.Client
 }
 
 func (o *manager) Start(ctx context.Context) error {
-	if o.id == "" {
+	if o.config.AgentID == "" {
 		o.logger.Error("Agent ID is not set. Please set the AGENT_ID environment variable.")
 		return fmt.Errorf("agent ID is not set")
 	}
 
-	if o.sharedAuthToken == "" {
+	if o.config.SharedAuthToken == "" {
 		o.logger.Error("Shared auth token is not set. Please set the SHARED_AUTH_TOKEN environment variable.")
 		return fmt.Errorf("shared auth token is not set")
 	}
@@ -67,15 +67,15 @@ func (o *manager) Start(ctx context.Context) error {
 }
 
 func (o *manager) runOnce(ctx context.Context) error {
-	conn, _, err := websocket.Dial(ctx, o.orchestratorURL, wsproto.DialOptions(http.Header{
-		"Authorization": {auth.BearerHeader(o.sharedAuthToken)},
+	conn, _, err := websocket.Dial(ctx, o.config.AgentOrchestratorWSURL, wsproto.DialOptions(http.Header{
+		"Authorization": {auth.BearerHeader(o.config.SharedAuthToken)},
 	}))
 	if err != nil {
 		return fmt.Errorf("dial orchestrator: %w", err)
 	}
 	wsproto.ConfigureConn(conn)
 
-	session := NewSession(o.id, conn, o.logger, o.workspaceManager, o.terraformManager)
+	session := NewSession(o.config.AgentID, conn, o.logger, o.config, o.workspaceManager, o.terraformManager, o.orchestratorClient)
 
 	if err := session.Hello(ctx); err != nil {
 		session.CloseNow()
@@ -115,13 +115,13 @@ func NewManager(
 	logger log.Logger,
 	workspaceManager workspace.Manager,
 	terraformManager terraform.Manager,
+	orchestratorClient orchestrator.Client,
 ) Manager {
 	return &manager{
-		id:               config.AgentID,
-		orchestratorURL:  config.AgentOrchestratorURL,
-		logger:           logger,
-		sharedAuthToken:  config.SharedAuthToken,
-		workspaceManager: workspaceManager,
-		terraformManager: terraformManager,
+		config:             config,
+		logger:             logger,
+		workspaceManager:   workspaceManager,
+		terraformManager:   terraformManager,
+		orchestratorClient: orchestratorClient,
 	}
 }

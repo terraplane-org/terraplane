@@ -27,15 +27,11 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 			"stack", cmd.GetStackName(),
 			"error", err,
 		)
-		if writeErr := h.writePlanResult(ctx, jobID, &terraplanev1.PlanResult{
-			Success: false,
-			Error:   err.Error(),
-		}); writeErr != nil {
+		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, "", err.Error()); writeErr != nil {
 			h.logger.Error(
-				"Failed to send plan result to orchestrator",
+				"Failed to submit plan result to orchestrator",
 				"job_id", jobID,
-				"repo", cmd.GetRepo(),
-				"stack", cmd.GetStackName(),
+				"agent_id", h.agentID,
 				"error", writeErr,
 			)
 		}
@@ -65,26 +61,18 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 			"stack", cmd.GetStackName(),
 			"error", err,
 		)
-		if writeErr := h.writePlanResult(ctx, jobID, &terraplanev1.PlanResult{
-			Success: false,
-			Output:  output,
-			Error:   err.Error(),
-		}); writeErr != nil {
+		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, output, err.Error()); writeErr != nil {
 			h.logger.Error(
-				"Failed to send plan result to orchestrator",
+				"Failed to submit plan result to orchestrator",
 				"job_id", jobID,
-				"repo", cmd.GetRepo(),
-				"stack", cmd.GetStackName(),
+				"agent_id", h.agentID,
 				"error", writeErr,
 			)
 		}
 		return
 	}
 
-	if writeErr := h.writePlanResult(ctx, jobID, &terraplanev1.PlanResult{
-		Success: true,
-		Output:  output,
-	}); writeErr != nil {
+	if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, true, output, ""); writeErr != nil {
 		err = writeErr
 		h.logger.Error(
 			"Failed to send plan result to orchestrator",
