@@ -44,8 +44,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	factory := agentsession.NewFactory(logger, registry, jobRepository, lockRepository, publisher, jobService, configConfig)
 	handler := webserver.NewHandler(logger, provider, publisher, registry, factory, jobService, configConfig)
 	server := webserver.NewServer(configConfig, logger, handler)
-	unlockService := services.NewUnlockService(logger, provider, publisher, jobRepository, lockRepository)
-	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobService, registry, unlockService)
+	dispatcher := orchestrator.NewDispatcher(configConfig, logger, jobService)
 	manager := orchestrator.NewManager(configConfig, logger, server, db, dispatcher)
 	return manager, nil
 }
