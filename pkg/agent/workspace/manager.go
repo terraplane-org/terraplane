@@ -12,6 +12,7 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 )
 
 type Manager interface {
@@ -24,22 +25,24 @@ type Manager interface {
 
 type manager struct {
 	logger     log.Logger
+	repoAccess scm.RepositoryAccess
 	sshKeyPath string
 	workDir    string
 	runner     process.Runner
 }
 
-func NewManager(cfg *config.Config, logger log.Logger) Manager {
-	return NewManagerWith(cfg, logger, process.OSRunner{})
+func NewManager(cfg *config.Config, logger log.Logger, repoAccess scm.RepositoryAccess) Manager {
+	return NewManagerWith(cfg, logger, repoAccess, process.OSRunner{})
 }
 
 // NewManagerWith is like NewManager but allows injecting a Command Runner (useful in tests).
-func NewManagerWith(cfg *config.Config, logger log.Logger, runner process.Runner) Manager {
+func NewManagerWith(cfg *config.Config, logger log.Logger, repoAccess scm.RepositoryAccess, runner process.Runner) Manager {
 	if runner == nil {
 		runner = process.OSRunner{}
 	}
 	return &manager{
 		logger:     logger,
+		repoAccess: repoAccess,
 		sshKeyPath: cfg.AgentSCMSSHKeyPath,
 		workDir:    cfg.AgentWorkDir,
 		runner:     runner,
@@ -150,7 +153,7 @@ func (m *manager) FetchWorkspace(ctx context.Context, repo string, revision stri
 }
 
 func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, repoDirPath string) (bool, error) {
-	host := scmHost(repo)
+	host := m.repoAccess.SSHHost()
 	knownHostsPath := filepath.Join(repoDirPath, "known_hosts")
 	if err := m.scanHostKeys(ctx, host, knownHostsPath); err != nil {
 		return false, err
@@ -161,7 +164,7 @@ func (m *manager) cloneRepo(ctx context.Context, repo string, revision string, r
 		m.sshKeyPath,
 		knownHostsPath,
 	)
-	repoURL := fmt.Sprintf("git@github.com:%s.git", repo)
+	repoURL := m.repoAccess.CloneURL(repo)
 
 	if err := m.runGit(ctx, repoDirPath, gitSSH, "init"); err != nil {
 		return false, fmt.Errorf("failed to initialize git repository: %w", err)
@@ -270,12 +273,6 @@ func (m *manager) pruneStaleWorkspaces(root *os.Root, repo, stack, keepDirName s
 			m.logger.Error("Failed to remove stale workspace", "name", name, "error", err)
 		}
 	}
-}
-
-func scmHost(repo string) string {
-	// TODO: Implement this properly. It requires a feed of the host path from the orchestrator
-	_ = repo
-	return "github.com"
 }
 
 func (m *manager) RemoveWorkspace(ctx context.Context, path string) error {

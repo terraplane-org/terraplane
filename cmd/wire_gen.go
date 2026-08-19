@@ -57,7 +57,11 @@ func InitializeAgent() (agent.Manager, error) {
 		return nil, err
 	}
 	logger := logging.NewLogger(configConfig)
-	manager := workspace.NewManager(configConfig, logger)
+	repositoryAccess, err := factory.NewRepositoryAccess(logger, configConfig)
+	if err != nil {
+		return nil, err
+	}
+	manager := workspace.NewManager(configConfig, logger, repositoryAccess)
 	terraformManager := terraform.NewManager(configConfig, logger)
 	client := orchestrator2.NewClient(configConfig)
 	agentManager := agent.NewManager(configConfig, logger, manager, terraformManager, client)

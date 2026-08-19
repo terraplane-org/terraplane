@@ -45,6 +45,7 @@ func InitializeAgent() (agent.Manager, error) {
 	wire.Build(
 		observableSet,
 		config.NewConfig,
+		scmfactory.NewRepositoryAccess,
 		workspace.NewManager,
 		terraform.NewManager,
 		agentorchestrator.NewClient,

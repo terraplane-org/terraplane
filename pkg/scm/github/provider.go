@@ -28,6 +28,14 @@ func (p *provider) Name() string {
 	return "github"
 }
 
+func (p *provider) SSHHost() string {
+	return "github.com"
+}
+
+func (p *provider) CloneURL(slug string) string {
+	return fmt.Sprintf("git@github.com:%s.git", slug)
+}
+
 func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 	if _, err := p.verifyWebhookSignature(r); err != nil {
 		return nil, err
@@ -155,6 +163,16 @@ func (p *provider) verifyWebhookSignature(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+var _ scm.RepositoryAccess = (*provider)(nil)
+
+func newProvider(logger log.Logger, cfg *config.Config, client Client) *provider {
+	return &provider{logger: logger, github_webhook_secret: cfg.OrchestratorGithubWebhookSecret, client: client}
+}
+
 func NewProvider(logger log.Logger, config *config.Config, client Client) scm.Provider {
-	return &provider{logger: logger, github_webhook_secret: config.OrchestratorGithubWebhookSecret, client: client}
+	return newProvider(logger, config, client)
+}
+
+func NewRepositoryAccess(logger log.Logger, cfg *config.Config, client Client) scm.RepositoryAccess {
+	return newProvider(logger, cfg, client)
 }

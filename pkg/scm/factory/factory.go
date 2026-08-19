@@ -30,6 +30,16 @@ func NewPublisher(logger log.Logger, cfg *config.Config) (scm.Publisher, error) 
 	}
 }
 
+func NewRepositoryAccess(logger log.Logger, cfg *config.Config) (scm.RepositoryAccess, error) {
+	switch normalizeProvider(cfg.SCMProvider) {
+	case "github":
+		client := github.NewClient(cfg)
+		return github.NewRepositoryAccess(logger, cfg, client), nil
+	default:
+		return nil, fmt.Errorf("unknown SCM provider %q", cfg.SCMProvider)
+	}
+}
+
 func normalizeProvider(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {

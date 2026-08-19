@@ -10,6 +10,14 @@ import (
 	"github.com/xyzjace/terraplane/pkg/scm/factory"
 )
 
+func TestNewRepositoryAccessGitHub(t *testing.T) {
+	repoAccess, err := factory.NewRepositoryAccess(log.Noop(), &config.Config{SCMProvider: "github"})
+	require.NoError(t, err)
+	require.Equal(t, "github", repoAccess.Name())
+	require.Equal(t, "github.com", repoAccess.SSHHost())
+	require.Equal(t, "git@github.com:acme/infra.git", repoAccess.CloneURL("acme/infra"))
+}
+
 func TestNewProviderGitHub(t *testing.T) {
 	provider, err := factory.NewProvider(log.Noop(), &config.Config{SCMProvider: "github"})
 	require.NoError(t, err)
