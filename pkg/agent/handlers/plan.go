@@ -3,28 +3,26 @@ package handlers
 import (
 	"context"
 
-	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
+	"github.com/xyzjace/terraplane/pkg/command"
 )
 
-func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplanev1.PlanCommand) {
+func (h *Handlers) handlePlan(ctx context.Context, cmd *command.PlanCommand) {
+	jobID := cmd.JobID
 	h.logger.Info(
 		"Running terraplane plan",
 		"job_id", jobID,
-		"repo", cmd.GetRepo(),
-		"pr", cmd.GetPrNumber(),
-		"stack", cmd.GetStackName(),
-		"dir", cmd.GetDir(),
-		"commit", cmd.GetCommitHash(),
-		"plan_flags", cmd.GetPlanFlags(),
+		"repo", cmd.Repo,
+		"pr", cmd.PRNumber,
+		"commit", cmd.CommitSHA,
+		"plan_flags", cmd.PlanFlags,
 	)
 
-	workspaceDir, err := h.workspaceManager.ProvisionWorkspace(ctx, cmd.GetRepo(), cmd.GetCommitHash(), cmd.GetStackName())
+	workspaceDir, err := h.workspaceManager.ProvisionWorkspace(ctx, cmd.Repo, cmd.CommitSHA, cmd.Stacks[0])
 	if err != nil {
 		h.logger.Error(
 			"Failed to provision workspace for terraplane plan",
-			"repo", cmd.GetRepo(),
-			"pr", cmd.GetPrNumber(),
-			"stack", cmd.GetStackName(),
+			"repo", cmd.Repo,
+			"pr", cmd.PRNumber,
 			"error", err,
 		)
 		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, "", err.Error()); writeErr != nil {
@@ -43,22 +41,20 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 			if removeErr := h.workspaceManager.RemoveWorkspace(ctx, workspaceDir); removeErr != nil {
 				h.logger.Error(
 					"Failed to remove workspace after plan failure",
-					"repo", cmd.GetRepo(),
-					"pr", cmd.GetPrNumber(),
-					"stack", cmd.GetStackName(),
+					"repo", cmd.Repo,
+					"pr", cmd.PRNumber,
 					"error", removeErr,
 				)
 			}
 		}
 	}()
 
-	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.GetStackName(), cmd.GetPlanFlags())
+	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.Stacks[0], cmd.PlanFlags)
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform plan",
-			"repo", cmd.GetRepo(),
-			"pr", cmd.GetPrNumber(),
-			"stack", cmd.GetStackName(),
+			"repo", cmd.Repo,
+			"pr", cmd.PRNumber,
 			"error", err,
 		)
 		if writeErr := h.orchestratorClient.SubmitResult(ctx, jobID, h.agentID, false, output, err.Error()); writeErr != nil {
@@ -77,8 +73,7 @@ func (h *Handlers) handlePlan(ctx context.Context, jobID string, cmd *terraplane
 		h.logger.Error(
 			"Failed to send plan result to orchestrator",
 			"job_id", jobID,
-			"repo", cmd.GetRepo(),
-			"stack", cmd.GetStackName(),
+			"repo", cmd.Repo,
 			"error", writeErr,
 		)
 	}

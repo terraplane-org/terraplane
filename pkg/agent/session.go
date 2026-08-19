@@ -12,6 +12,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace"
+	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 	"github.com/xyzjace/terraplane/pkg/wsproto"
@@ -40,9 +41,7 @@ func NewSession(
 		conn:   conn,
 		logger: logger,
 	}
-	s.handlers = handlers.New(logger, cfg, func(ctx context.Context, env *terraplanev1.TerraformEnvelope) error {
-		return s.WriteTerraform(ctx, env)
-	}, workspaceManager, terraformManager, orchestratorClient)
+	s.handlers = handlers.New(logger, cfg, workspaceManager, terraformManager, orchestratorClient)
 	return s
 }
 
@@ -97,14 +96,12 @@ func (s *Session) Run(ctx context.Context) error {
 				continue
 			}
 			tf = proto.Clone(tf).(*terraplanev1.TerraformEnvelope)
-			if err := s.handlers.Dispatch(ctx, tf); err != nil {
-				s.logger.Error(
-					"Failed to dispatch terraform envelope",
-					"agent_id", s.id,
-					"job_id", tf.GetJobId(),
-					"error", err,
-				)
+			cmd := protoEnvelopeToCommand(tf)
+			if cmd == nil {
+				s.logger.Warn("Ignoring unrecognised terraform envelope payload", "agent_id", s.id, "job_id", tf.GetJobId())
+				continue
 			}
+			s.handlers.Dispatch(ctx, cmd)
 		default:
 			s.logger.Debug("Ignoring unexpected websocket payload", "agent_id", s.id, "payload", fmt.Sprintf("%T", env.GetPayload()))
 		}
@@ -117,6 +114,41 @@ func (s *Session) Close(status websocket.StatusCode, reason string) {
 
 func (s *Session) CloseNow() {
 	_ = s.conn.CloseNow()
+}
+
+// protoEnvelopeToCommand converts a WS proto envelope into the command type used by handlers.
+// This is temporary bridge code that will be removed when the WS path is deleted in PR 8.
+func protoEnvelopeToCommand(env *terraplanev1.TerraformEnvelope) *command.Command {
+	jobID := env.GetJobId()
+	switch p := env.GetPayload().(type) {
+	case *terraplanev1.TerraformEnvelope_Plan:
+		cmd := &command.Command{Kind: command.KindPlan}
+		cmd.Plan.JobID = jobID
+		cmd.Plan.Repo = p.Plan.GetRepo()
+		cmd.Plan.CommitSHA = p.Plan.GetCommitHash()
+		cmd.Plan.PRNumber = int(p.Plan.GetPrNumber())
+		cmd.Plan.Dir = p.Plan.GetDir()
+		cmd.Plan.PlanFlags = p.Plan.GetPlanFlags()
+		cmd.Plan.Stacks = []string{p.Plan.GetStackName()}
+		return cmd
+	case *terraplanev1.TerraformEnvelope_Apply:
+		cmd := &command.Command{Kind: command.KindApply}
+		cmd.Apply.JobID = jobID
+		cmd.Apply.Repo = p.Apply.GetRepo()
+		cmd.Apply.CommitSHA = p.Apply.GetCommitHash()
+		cmd.Apply.PRNumber = int(p.Apply.GetPrNumber())
+		cmd.Apply.Dir = p.Apply.GetDir()
+		cmd.Apply.Stacks = []string{p.Apply.GetStackName()}
+		return cmd
+	case *terraplanev1.TerraformEnvelope_Unlock:
+		cmd := &command.Command{Kind: command.KindUnlock}
+		cmd.Unlock.JobID = jobID
+		cmd.Unlock.Repo = p.Unlock.GetRepo()
+		cmd.Unlock.PRNumber = int(p.Unlock.GetPrNumber())
+		return cmd
+	default:
+		return nil
+	}
 }
 
 func isExpectedDisconnect(err error) bool {
