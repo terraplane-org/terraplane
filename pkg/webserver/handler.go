@@ -175,12 +175,11 @@ func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cmd == nil {
-		w.WriteHeader(http.StatusNoContent)
+		writeNoContent(w)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(agentJobClaimResponse{Command: *cmd})
+	writeJSON(w, http.StatusOK, agentJobClaimResponse{Command: *cmd})
 }
 
 func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) {
@@ -191,14 +190,13 @@ func (h *handler) agentHeartbeatHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err := h.jobService.RefreshAgentClaims(r.Context(), payload.AgentID)
-	if err != nil {
+	if err := h.jobService.RefreshAgentClaims(r.Context(), payload.AgentID); err != nil {
 		h.logger.Error("Failed to refresh agent claims", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to refresh agent claims")
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeNoContent(w)
 }
 
 func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
@@ -216,11 +214,25 @@ func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeNoContent(w)
 }
 
 func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Agent job result handler called")
+	var payload agentJobResultPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent job result request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent job result request body")
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if err := h.jobService.CommitJobResult(r.Context(), jobID, payload.Result, payload.Output, payload.Error); err != nil {
+		h.logger.Error("Failed to commit job result", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to commit job result")
+		return
+	}
+
+	writeNoContent(w)
 }
 
 func agentIDFromHello(hello *terraplanev1.WebsocketEnvelope) (string, error) {
@@ -243,6 +255,17 @@ func (h *handler) healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeResponse(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(body))
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeNoContent(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
 }

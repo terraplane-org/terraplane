@@ -38,6 +38,22 @@ func testFactory(
 	return NewFactory(logger, reg, jobs, locks, pub, jobService, &config.Config{})
 }
 
+func testJobService(
+	ctrl *gomock.Controller,
+	jobs repository.JobRepository,
+	locks repository.LockRepository,
+	pub scm.Publisher,
+) services.JobService {
+	return services.NewJobService(
+		log.Noop(),
+		jobs,
+		locks,
+		mock_scm.NewMockProvider(ctrl),
+		pub,
+		&config.Config{},
+	)
+}
+
 func TestIsExpectedDisconnect(t *testing.T) {
 	require.True(t, isExpectedDisconnect(context.Canceled))
 	require.True(t, isExpectedDisconnect(context.DeadlineExceeded))
@@ -109,11 +125,18 @@ func TestSessionRunPlanAndApplyResults(t *testing.T) {
 	reg := NewRegistry(log.Noop())
 
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, locks, pub, nil).New("agent-1", serverConn)
+	jobSvc := testJobService(ctrl, jobs, locks, pub)
+	sess := NewFactory(log.Noop(), reg, jobs, locks, pub, jobSvc, &config.Config{}).New("agent-1", serverConn)
 	require.NoError(t, reg.Register(context.Background(), sess))
 
-	planJob := &models.Job{ID: "plan-1", Repo: "acme/infra", PRNumber: 2, StackName: "a", Status: models.JobStatusRunning}
-	applyJob := &models.Job{ID: "apply-1", Repo: "acme/infra", PRNumber: 2, StackName: "a", Status: models.JobStatusRunning}
+	planJob := &models.Job{
+		ID: "plan-1", Repo: "acme/infra", PRNumber: 2, StackName: "a",
+		Action: models.JobActionPlan, Status: models.JobStatusRunning,
+	}
+	applyJob := &models.Job{
+		ID: "apply-1", Repo: "acme/infra", PRNumber: 2, StackName: "a",
+		Action: models.JobActionApply, Status: models.JobStatusRunning,
+	}
 	processed := make(chan struct{})
 
 	jobs.EXPECT().Get(gomock.Any(), "plan-1").Return(planJob, nil)
@@ -186,10 +209,19 @@ func TestSessionRunHandlerError(t *testing.T) {
 func TestSessionRunPlanResultHandlerError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	jobs := mock_repository.NewMockJobRepository(ctrl)
+	locks := mock_repository.NewMockLockRepository(ctrl)
+	pub := mock_scm.NewMockPublisher(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl), nil).
-		New("agent-1", serverConn)
+	sess := NewFactory(
+		log.Noop(),
+		reg,
+		jobs,
+		locks,
+		pub,
+		testJobService(ctrl, jobs, locks, pub),
+		&config.Config{},
+	).New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
 
@@ -211,10 +243,19 @@ func TestSessionRunPlanResultHandlerError(t *testing.T) {
 func TestSessionRunApplyResultHandlerError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	jobs := mock_repository.NewMockJobRepository(ctrl)
+	locks := mock_repository.NewMockLockRepository(ctrl)
+	pub := mock_scm.NewMockPublisher(ctrl)
 	reg := NewRegistry(log.Noop())
 	serverConn, clientConn := testWSPair(t)
-	sess := testFactory(log.Noop(), reg, jobs, mock_repository.NewMockLockRepository(ctrl), mock_scm.NewMockPublisher(ctrl), nil).
-		New("agent-1", serverConn)
+	sess := NewFactory(
+		log.Noop(),
+		reg,
+		jobs,
+		locks,
+		pub,
+		testJobService(ctrl, jobs, locks, pub),
+		&config.Config{},
+	).New("agent-1", serverConn)
 
 	jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
 

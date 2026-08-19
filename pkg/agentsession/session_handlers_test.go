@@ -10,15 +10,43 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/pkg/command"
-	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
-	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository/mock_repository"
 	terraplanev1 "github.com/xyzjace/terraplane/pkg/terraplane/v1"
 )
+
+type commitStubJobService struct {
+	err   error
+	calls []commitCall
+}
+
+type commitCall struct {
+	jobID  string
+	result string
+	output string
+	errMsg string
+}
+
+func (s *commitStubJobService) CreatePendingJobs(context.Context, *scm.Webhook) error { return nil }
+func (s *commitStubJobService) ClaimPendingJob(context.Context, string) (*command.Command, error) {
+	return nil, nil
+}
+func (s *commitStubJobService) ReleaseClaim(context.Context, string) error { return nil }
+func (s *commitStubJobService) FailClaimedJob(context.Context, string, string) error {
+	return nil
+}
+func (s *commitStubJobService) ReapExpiredClaims(context.Context) error          { return nil }
+func (s *commitStubJobService) RefreshAgentClaims(context.Context, string) error { return nil }
+func (s *commitStubJobService) AckJob(context.Context, string) error             { return nil }
+func (s *commitStubJobService) CommitJobResult(_ context.Context, jobID, result, output, errMsg string) error {
+	s.calls = append(s.calls, commitCall{jobID: jobID, result: result, output: output, errMsg: errMsg})
+	return s.err
+}
+
+var _ services.JobService = (*commitStubJobService)(nil)
 
 type ackStubJobService struct {
 	err   error
@@ -29,13 +57,18 @@ func (s *ackStubJobService) CreatePendingJobs(context.Context, *scm.Webhook) err
 func (s *ackStubJobService) ClaimPendingJob(context.Context, string) (*command.Command, error) {
 	return nil, nil
 }
-func (s *ackStubJobService) ReleaseClaim(context.Context, string) error           { return nil }
-func (s *ackStubJobService) FailClaimedJob(context.Context, string, string) error { return nil }
-func (s *ackStubJobService) ReapExpiredClaims(context.Context) error              { return nil }
-func (s *ackStubJobService) RefreshAgentClaims(context.Context, string) error     { return nil }
+func (s *ackStubJobService) ReleaseClaim(context.Context, string) error { return nil }
+func (s *ackStubJobService) FailClaimedJob(context.Context, string, string) error {
+	return nil
+}
+func (s *ackStubJobService) ReapExpiredClaims(context.Context) error          { return nil }
+func (s *ackStubJobService) RefreshAgentClaims(context.Context, string) error { return nil }
 func (s *ackStubJobService) AckJob(_ context.Context, jobID string) error {
 	s.acked = append(s.acked, jobID)
 	return s.err
+}
+func (s *ackStubJobService) CommitJobResult(context.Context, string, string, string, string) error {
+	return nil
 }
 
 var _ services.JobService = (*ackStubJobService)(nil)
@@ -67,18 +100,6 @@ func (s *SessionHandlersSuite) SetupTest() {
 	}
 }
 
-func sampleJob() *models.Job {
-	return &models.Job{
-		ID:        "job-1",
-		Repo:      "acme/infra",
-		PRNumber:  42,
-		StackName: "stg",
-		Dir:       "stacks/stg",
-		CommitSHA: "abc123",
-		Status:    models.JobStatusPending,
-	}
-}
-
 func (s *SessionHandlersSuite) TestHandleAckDelegatesToJobService() {
 	stub := &ackStubJobService{}
 	s.sess.jobService = stub
@@ -99,19 +120,9 @@ func (s *SessionHandlersSuite) TestHandleAckPropagatesError() {
 	require.Contains(s.T(), err.Error(), "ack failed")
 }
 
-func (s *SessionHandlersSuite) TestHandlePlanResultSuccessWritesComment() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusSucceeded, updated.Status)
-			require.Equal(s.T(), "plan out", updated.Output)
-			require.Empty(s.T(), updated.ErrorMsg)
-			return nil
-		},
-	)
-	expected := feedback.PlanResultComment(job, true, "plan out", "")
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), expected).Return(nil)
+func (s *SessionHandlersSuite) TestHandlePlanResultDelegatesSuccess() {
+	stub := &commitStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
@@ -120,19 +131,14 @@ func (s *SessionHandlersSuite) TestHandlePlanResultSuccessWritesComment() {
 		},
 	})
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "success", output: "plan out",
+	}}, stub.calls)
 }
 
-func (s *SessionHandlersSuite) TestHandlePlanResultFailureWritesComment() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusFailed, updated.Status)
-			require.Equal(s.T(), "boom", updated.ErrorMsg)
-			return nil
-		},
-	)
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+func (s *SessionHandlersSuite) TestHandlePlanResultDelegatesFailure() {
+	stub := &commitStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
@@ -141,45 +147,25 @@ func (s *SessionHandlersSuite) TestHandlePlanResultFailureWritesComment() {
 		},
 	})
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "failed", errMsg: "boom",
+	}}, stub.calls)
 }
 
-func (s *SessionHandlersSuite) TestHandlePlanResultCommentFailureIsBestEffort() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
-
-	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{
-		JobId: "job-1",
-		Payload: &terraplanev1.TerraformEnvelope_PlanResult{
-			PlanResult: &terraplanev1.PlanResult{Success: true, Output: "ok"},
-		},
-	})
-	require.NoError(s.T(), err)
-}
-
-func (s *SessionHandlersSuite) TestHandlePlanResultNilPayloadDoesNotUpdateJob() {
-	// Intention: unlike apply, a nil plan result fails before mutating job state.
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(sampleJob(), nil)
+func (s *SessionHandlersSuite) TestHandlePlanResultNilPayloadDoesNotCommit() {
+	stub := &commitStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId:   "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_PlanResult{PlanResult: nil},
 	})
 	require.EqualError(s.T(), err, "plan result is nil")
+	require.Empty(s.T(), stub.calls)
 }
 
-func (s *SessionHandlersSuite) TestHandlePlanResultGetFailure() {
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
-
-	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{JobId: "job-1"})
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to fetch job")
-}
-
-func (s *SessionHandlersSuite) TestHandlePlanResultUpdateFailure() {
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(sampleJob(), nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+func (s *SessionHandlersSuite) TestHandlePlanResultPropagatesCommitError() {
+	s.sess.jobService = &commitStubJobService{err: errors.New("db")}
 
 	err := s.sess.handlePlanResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
@@ -188,22 +174,12 @@ func (s *SessionHandlersSuite) TestHandlePlanResultUpdateFailure() {
 		},
 	})
 	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to update job")
+	require.Contains(s.T(), err.Error(), "db")
 }
 
-func (s *SessionHandlersSuite) TestHandleApplyResultSuccessReleasesLockAndComments() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusSucceeded, updated.Status)
-			require.Equal(s.T(), "apply out", updated.Output)
-			return nil
-		},
-	)
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	expected := feedback.ApplyResultComment(job, true, "apply out", "")
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), expected).Return(nil)
+func (s *SessionHandlersSuite) TestHandleApplyResultDelegatesSuccess() {
+	stub := &commitStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
@@ -212,71 +188,38 @@ func (s *SessionHandlersSuite) TestHandleApplyResultSuccessReleasesLockAndCommen
 		},
 	})
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "success", output: "apply out",
+	}}, stub.calls)
 }
 
-func (s *SessionHandlersSuite) TestHandleApplyResultFailureStillReleasesLock() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusFailed, updated.Status)
-			require.Equal(s.T(), "apply boom", updated.ErrorMsg)
-			return nil
-		},
-	)
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
-
-	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
-		JobId: "job-1",
-		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
-			ApplyResult: &terraplanev1.ApplyResult{Success: false, Error: "apply boom"},
-		},
-	})
-	require.NoError(s.T(), err)
-}
-
-func (s *SessionHandlersSuite) TestHandleApplyResultCommentFailureIsBestEffort() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.scm.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
-
-	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
-		JobId: "job-1",
-		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
-			ApplyResult: &terraplanev1.ApplyResult{Success: true},
-		},
-	})
-	require.NoError(s.T(), err)
-}
-
-func (s *SessionHandlersSuite) TestHandleApplyResultNilPayloadMarksFailedReleasesLockThenErrors() {
-	// Intention: nil apply result mutates job to failed and releases the lock, then returns an error.
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
-		func(_ context.Context, updated *models.Job) error {
-			require.Equal(s.T(), models.JobStatusFailed, updated.Status)
-			require.Equal(s.T(), "apply result is nil", updated.ErrorMsg)
-			return nil
-		},
-	)
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+func (s *SessionHandlersSuite) TestHandleApplyResultNilPayloadCommitsThenErrors() {
+	stub := &commitStubJobService{}
+	s.sess.jobService = stub
 
 	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId:   "job-1",
 		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{ApplyResult: nil},
 	})
 	require.EqualError(s.T(), err, "apply result is nil")
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "failed", errMsg: "apply result is nil",
+	}}, stub.calls)
 }
 
-func (s *SessionHandlersSuite) TestHandleApplyResultUpdateFailureStillAttemptsLockRelease() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+func (s *SessionHandlersSuite) TestHandleApplyResultNilPayloadCommitError() {
+	s.sess.jobService = &commitStubJobService{err: errors.New("db")}
+
+	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
+		JobId:   "job-1",
+		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{ApplyResult: nil},
+	})
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "db")
+}
+
+func (s *SessionHandlersSuite) TestHandleApplyResultPropagatesCommitError() {
+	s.sess.jobService = &commitStubJobService{err: errors.New("db")}
 
 	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
 		JobId: "job-1",
@@ -285,48 +228,7 @@ func (s *SessionHandlersSuite) TestHandleApplyResultUpdateFailureStillAttemptsLo
 		},
 	})
 	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to update job")
-	require.NotContains(s.T(), err.Error(), "also failed to release lock")
-}
-
-func (s *SessionHandlersSuite) TestHandleApplyResultUpdateAndLockReleaseFailure() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
-
-	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
-		JobId: "job-1",
-		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
-			ApplyResult: &terraplanev1.ApplyResult{Success: true},
-		},
-	})
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "also failed to release lock")
-}
-
-func (s *SessionHandlersSuite) TestHandleApplyResultLockReleaseFailureAfterUpdate() {
-	job := sampleJob()
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
-	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
-
-	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{
-		JobId: "job-1",
-		Payload: &terraplanev1.TerraformEnvelope_ApplyResult{
-			ApplyResult: &terraplanev1.ApplyResult{Success: true},
-		},
-	})
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to release lock")
-}
-
-func (s *SessionHandlersSuite) TestHandleApplyResultGetFailure() {
-	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
-
-	err := s.sess.handleApplyResult(context.Background(), &terraplanev1.TerraformEnvelope{JobId: "job-1"})
-	require.Error(s.T(), err)
-	require.Contains(s.T(), err.Error(), "failed to fetch job")
+	require.Contains(s.T(), err.Error(), "db")
 }
 
 func (s *SessionHandlersSuite) TestID() {

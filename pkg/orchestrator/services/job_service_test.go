@@ -23,11 +23,12 @@ import (
 
 type JobServiceSuite struct {
 	suite.Suite
-	ctrl  *gomock.Controller
-	scm   *mock_scm.MockProvider
-	jobs  *mock_repository.MockJobRepository
-	locks *mock_repository.MockLockRepository
-	svc   services.JobService
+	ctrl      *gomock.Controller
+	scm       *mock_scm.MockProvider
+	publisher *mock_scm.MockPublisher
+	jobs      *mock_repository.MockJobRepository
+	locks     *mock_repository.MockLockRepository
+	svc       services.JobService
 }
 
 func TestJobServiceSuite(t *testing.T) {
@@ -37,9 +38,10 @@ func TestJobServiceSuite(t *testing.T) {
 func (s *JobServiceSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
+	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
 	s.locks = mock_repository.NewMockLockRepository(s.ctrl)
-	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, &config.Config{OrchestratorJobLease: time.Minute})
+	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{OrchestratorJobLease: time.Minute})
 }
 
 func webhook(comment string) *scm.Webhook {
@@ -479,4 +481,111 @@ func (s *JobServiceSuite) TestAckJobUpdateFailure() {
 	err := s.svc.AckJob(context.Background(), "job-1")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to update job")
+}
+
+func resultJob(action models.JobAction) *models.Job {
+	job := claimedJob(action, `{}`)
+	job.Status = models.JobStatusRunning
+	return job
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusSucceeded, updated.Status)
+			require.Equal(s.T(), "plan out", updated.Output)
+			require.Empty(s.T(), updated.ErrorMsg)
+			return nil
+		},
+	)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanFailure() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), models.JobStatusFailed, updated.Status)
+			require.Equal(s.T(), "boom", updated.ErrorMsg)
+			return nil
+		},
+	)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "failed", "", "boom"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplySuccessReleasesLock() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "success", "apply out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyFailureStillReleasesLock() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "failed", "", "apply boom"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyUpdateFailureStillAttemptsLockRelease() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to update job")
+	require.NotContains(s.T(), err.Error(), "also failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyUpdateAndLockReleaseFailure() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "also failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultApplyLockReleaseFailureAfterUpdate() {
+	job := resultJob(models.JobActionApply)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(errors.New("unlock failed"))
+
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to release lock")
+}
+
+func (s *JobServiceSuite) TestCommitJobResultGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.CommitJobResult(context.Background(), "job-1", "success", "", "")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
 }

@@ -36,6 +36,15 @@ type stubJobs struct {
 	refreshed  []string
 	ackErr     error
 	acked      []string
+	commitErr  error
+	committed  []commitCall
+}
+
+type commitCall struct {
+	jobID  string
+	result string
+	output string
+	errMsg string
 }
 
 func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
@@ -60,6 +69,12 @@ func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
 func (s *stubJobs) AckJob(_ context.Context, jobID string) error {
 	s.acked = append(s.acked, jobID)
 	return s.ackErr
+}
+func (s *stubJobs) CommitJobResult(_ context.Context, jobID, result, output, errMsg string) error {
+	s.committed = append(s.committed, commitCall{
+		jobID: jobID, result: result, output: output, errMsg: errMsg,
+	})
+	return s.commitErr
 }
 
 type stubFactory struct {
@@ -274,15 +289,16 @@ func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
 		"/agent/jobs/job-1/ack",
 		"/agent/jobs/job-1/result",
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"agent_id":"agent-dev"}`))
+		body := `{"agent_id":"agent-dev"}`
+		if path == "/agent/jobs/job-1/result" {
+			body = `{"agent_id":"agent-dev","result":"success"}`
+		}
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer secret")
 		rec := httptest.NewRecorder()
 		s.handler.ServeHTTP(rec, req)
-		want := http.StatusOK
-		if path == "/agent/jobs/job-1/heartbeat" || path == "/agent/jobs/job-1/ack" {
-			want = http.StatusNoContent
-		}
-		require.Equal(s.T(), want, rec.Code, path)
+		require.Equal(s.T(), http.StatusNoContent, rec.Code, path)
+		require.Empty(s.T(), rec.Body.String(), path)
 	}
 }
 
@@ -292,6 +308,15 @@ func (s *HandlerSuite) TestAgentClaimNoJob() {
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Empty(s.T(), rec.Body.String())
+}
+
+func (s *HandlerSuite) TestAgentClaimNoJobHasNoJSONContentType() {
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{"agent_id":"agent-dev"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Empty(s.T(), rec.Header().Get("Content-Type"))
 }
 
 func (s *HandlerSuite) TestAgentClaimReturnsJob() {
@@ -304,6 +329,7 @@ func (s *HandlerSuite) TestAgentClaimReturnsJob() {
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusOK, rec.Code)
+	require.Equal(s.T(), "application/json", rec.Header().Get("Content-Type"))
 	require.Contains(s.T(), rec.Body.String(), `"Kind":"plan"`)
 	require.Contains(s.T(), rec.Body.String(), "job-1")
 }
@@ -370,6 +396,30 @@ func (s *HandlerSuite) TestAgentAckServiceError() {
 	rec := s.agentPOST("/agent/jobs/job-1/ack", `{"agent_id":"agent-dev"}`)
 	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
 	require.Equal(s.T(), []string{"job-1"}, s.jobs.acked)
+}
+
+func (s *HandlerSuite) TestAgentResultCommitsJob() {
+	rec := s.agentPOST("/agent/jobs/job-1/result", `{"agent_id":"agent-dev","result":"success","output":"ok"}`)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Empty(s.T(), rec.Body.String())
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "success", output: "ok",
+	}}, s.jobs.committed)
+}
+
+func (s *HandlerSuite) TestAgentResultInvalidJSON() {
+	rec := s.agentPOST("/agent/jobs/job-1/result", `{`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Empty(s.T(), s.jobs.committed)
+}
+
+func (s *HandlerSuite) TestAgentResultServiceError() {
+	s.jobs.commitErr = errors.New("db")
+	rec := s.agentPOST("/agent/jobs/job-1/result", `{"agent_id":"agent-dev","result":"failed","error":"boom"}`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Equal(s.T(), []commitCall{{
+		jobID: "job-1", result: "failed", errMsg: "boom",
+	}}, s.jobs.committed)
 }
 
 func (s *HandlerSuite) TestWebsocketAcceptFailure() {
