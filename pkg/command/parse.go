@@ -7,6 +7,11 @@ import (
 )
 
 func ParseWebhook(w *scm.Webhook) Command {
+	kind := verb(w.FullCommand)
+	if kind == KindUnknown || !validArgs(kind, w.FullCommand) {
+		return Command{Kind: KindUnknown}
+	}
+
 	b := base{
 		Repo:        w.RepositorySlug,
 		PRNumber:    w.PRNumber,
@@ -14,7 +19,7 @@ func ParseWebhook(w *scm.Webhook) Command {
 		RawComment:  w.FullCommand,
 		CommitSHA:   w.CommitSHA,
 	}
-	switch verb(w.FullCommand) {
+	switch kind {
 	case KindPlan:
 		return Command{Kind: KindPlan, Plan: PlanCommand{
 			base:         b,
@@ -28,15 +33,12 @@ func ParseWebhook(w *scm.Webhook) Command {
 			Stacks:       stacks(w.FullCommand),
 			Environments: environments(w.FullCommand),
 		}}
-	case KindUnlock:
-		return Command{Kind: KindUnlock, Unlock: UnlockCommand{
-			base:         b,
-			Stacks:       stacks(w.FullCommand),
-			Environments: environments(w.FullCommand),
-		}}
-	default:
-		return Command{Kind: KindUnknown}
 	}
+	return Command{Kind: KindUnlock, Unlock: UnlockCommand{
+		base:         b,
+		Stacks:       stacks(w.FullCommand),
+		Environments: environments(w.FullCommand),
+	}}
 }
 
 func verb(body string) Kind {
@@ -54,6 +56,54 @@ func verb(body string) Kind {
 	default:
 		return KindUnknown
 	}
+}
+
+// validArgs rejects positional arguments and incomplete flags.
+//
+// Valid forms:
+//
+//	terraplane plan|apply|unlock [-s NAME|-stack NAME|-e NAME|-env NAME]...
+//	terraplane plan ... [--] <terraform plan flags>
+//	(Terraform flags that require a separate value must use -flag=value or come after "--".)
+//
+// Bare words like "terraplane plan stackname" are invalid.
+func validArgs(kind Kind, body string) bool {
+	fields := strings.Fields(firstLine(body))
+	// verb() already requires len(fields) >= 2 before calling validArgs.
+	for i := 2; i < len(fields); i++ {
+		tok := fields[i]
+
+		if kind == KindPlan && tok == "--" {
+			return true
+		}
+
+		switch tok {
+		case "-s", "-stack", "-e", "-env":
+			i++
+			if i >= len(fields) || strings.HasPrefix(fields[i], "-") {
+				return false
+			}
+			continue
+		}
+
+		if strings.HasPrefix(tok, "-s=") ||
+			strings.HasPrefix(tok, "-stack=") ||
+			strings.HasPrefix(tok, "-e=") ||
+			strings.HasPrefix(tok, "-env=") {
+			continue
+		}
+
+		// Positional args are never valid.
+		if !strings.HasPrefix(tok, "-") {
+			return false
+		}
+
+		// Apply/unlock only accept terraplane flags; plan also accepts terraform flags.
+		if kind != KindPlan {
+			return false
+		}
+	}
+	return true
 }
 
 func stacks(body string) []string {
@@ -76,7 +126,7 @@ func flagValues(body string, short, long string) []string {
 		switch fields[i] {
 		case short, long:
 			i++
-			if i < len(fields) {
+			if i < len(fields) && !strings.HasPrefix(fields[i], "-") {
 				out = append(out, fields[i])
 			}
 		default:
