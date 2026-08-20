@@ -97,8 +97,41 @@ func TestParseWebhook(t *testing.T) {
 		w := *base
 		w.FullCommand = "terraplane plan -s"
 		cmd := command.ParseWebhook(&w)
-		require.Equal(t, command.KindPlan, cmd.Kind)
-		require.Empty(t, cmd.Plan.Stacks)
+		require.Equal(t, command.KindUnknown, cmd.Kind)
+	})
+
+	t.Run("rejects positional stack name", func(t *testing.T) {
+		for _, body := range []string{
+			"terraplane plan stackname",
+			"terraplane apply stackname",
+			"terraplane unlock stackname",
+			"terraplane plan -s stg-a stackname",
+			"terraplane plan stackname -s stg-a",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+		}
+	})
+
+	t.Run("rejects apply and unlock terraform-style flags", func(t *testing.T) {
+		for _, body := range []string{
+			"terraplane apply -s stg-a -target=module.x",
+			"terraplane unlock -s stg-a --force",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+		}
+	})
+
+	t.Run("rejects flag value that looks like a flag", func(t *testing.T) {
+		w := *base
+		w.FullCommand = "terraplane plan -s -e"
+		cmd := command.ParseWebhook(&w)
+		require.Equal(t, command.KindUnknown, cmd.Kind)
 	})
 
 	t.Run("unknown", func(t *testing.T) {
