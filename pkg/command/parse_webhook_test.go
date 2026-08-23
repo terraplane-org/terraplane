@@ -16,6 +16,20 @@ func TestParseWebhook(t *testing.T) {
 		CommitSHA:      "abc123",
 	}
 
+	t.Run("change updated plans all stacks", func(t *testing.T) {
+		w := *base
+		w.Kind = scm.EventKindChangeUpdated
+		cmd := command.ParseWebhook(&w)
+		require.Equal(t, command.KindPlan, cmd.Kind)
+		require.Equal(t, "org/repo", cmd.Plan.Repo)
+		require.Equal(t, 42, cmd.Plan.PRNumber)
+		require.Equal(t, "jace", cmd.Plan.TriggerUser)
+		require.Equal(t, "abc123", cmd.Plan.CommitSHA)
+		require.Empty(t, cmd.Plan.Stacks)
+		require.Empty(t, cmd.Plan.Environments)
+		require.Empty(t, cmd.Plan.PlanFlags)
+	})
+
 	t.Run("plan", func(t *testing.T) {
 		w := *base
 		w.FullCommand = "terraplane plan -s stg-a -stack stg-b -s=stg-c -stack=stg-d -target=module.x"

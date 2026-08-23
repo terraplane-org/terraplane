@@ -1,6 +1,7 @@
 package github
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/github/mock_github"
 )
 
@@ -145,6 +147,106 @@ func (s *ProviderSuite) TestIssueCommentHappyPath() {
 	require.Equal(s.T(), "terraplane plan -s stg", got[0].FullCommand)
 	require.Equal(s.T(), "jace", got[0].TriggeringUser)
 	require.Equal(s.T(), "abc123", got[0].CommitSHA)
+	require.Equal(s.T(), scm.EventKindCommand, got[0].Kind)
+}
+
+func (s *ProviderSuite) TestPullRequestOpenedHappyPath() {
+	body := pullRequestPayload(s.T(), "opened", "open", false, "abc123")
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Len(s.T(), got, 1)
+	require.Equal(s.T(), scm.EventKindChangeUpdated, got[0].Kind)
+	require.Equal(s.T(), "acme/infra", got[0].RepositorySlug)
+	require.Equal(s.T(), 42, got[0].PRNumber)
+	require.Equal(s.T(), "jace", got[0].TriggeringUser)
+	require.Equal(s.T(), "abc123", got[0].CommitSHA)
+	require.Empty(s.T(), got[0].FullCommand)
+	require.Zero(s.T(), got[0].CommentID)
+}
+
+func (s *ProviderSuite) TestPullRequestSynchronizeHappyPath() {
+	body := pullRequestPayload(s.T(), "synchronize", "open", false, "def456")
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Len(s.T(), got, 1)
+	require.Equal(s.T(), scm.EventKindChangeUpdated, got[0].Kind)
+	require.Equal(s.T(), "def456", got[0].CommitSHA)
+}
+
+func (s *ProviderSuite) TestPullRequestIgnoresLabeled() {
+	body := pullRequestPayload(s.T(), "labeled", "open", false, "abc123")
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Nil(s.T(), got)
+}
+
+func (s *ProviderSuite) TestPullRequestIgnoresDraft() {
+	body := pullRequestPayload(s.T(), "opened", "open", true, "abc123")
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Nil(s.T(), got)
+}
+
+func (s *ProviderSuite) TestPullRequestIgnoresClosed() {
+	body := pullRequestPayload(s.T(), "reopened", "closed", false, "abc123")
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Nil(s.T(), got)
+}
+
+func (s *ProviderSuite) TestPullRequestEmptySHA() {
+	body := pullRequestPayload(s.T(), "opened", "open", false, "")
+	_, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "empty head commit SHA")
+}
+
+func (s *ProviderSuite) TestPullRequestInvalidJSON() {
+	_, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", []byte(`{not-json`)))
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to unmarshal")
+}
+
+func (s *ProviderSuite) TestPullRequestBodyReadError() {
+	body := []byte(`{}`)
+	req, err := http.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+	require.NoError(s.T(), err)
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", signBody(s.T(), body, testWebhookSecret))
+	req.Body = io.NopCloser(errReader{})
+	_, err = s.prov.parsePullRequestWebhook(req)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to read GitHub pull request webhook request body")
+}
+
+func (s *ProviderSuite) TestPullRequestReopenedAndReadyForReview() {
+	for _, action := range []string{"reopened", "ready_for_review"} {
+		body := pullRequestPayload(s.T(), action, "open", false, "abc123")
+		got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+		require.NoError(s.T(), err)
+		require.Len(s.T(), got, 1, action)
+		require.Equal(s.T(), scm.EventKindChangeUpdated, got[0].Kind, action)
+	}
+}
+
+func (s *ProviderSuite) TestPullRequestFallsBackToTopLevelNumber() {
+	payload := map[string]any{
+		"action": "opened",
+		"number": 7,
+		"pull_request": map[string]any{
+			"state": "open",
+			"draft": false,
+			"head":  map[string]any{"sha": "abc123"},
+		},
+		"sender":     map[string]any{"login": "jace"},
+		"repository": map[string]any{"full_name": "acme/infra"},
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(s.T(), err)
+	got, err := s.prov.ParseWebhook(signedRequest(s.T(), "pull_request", body))
+	require.NoError(s.T(), err)
+	require.Len(s.T(), got, 1)
+	require.Equal(s.T(), 7, got[0].PRNumber)
 }
 
 func (s *ProviderSuite) TestGetFileDelegatesToClient() {

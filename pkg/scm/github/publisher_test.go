@@ -9,6 +9,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/github/mock_github"
 )
 
@@ -19,24 +20,77 @@ func TestPublisherName(t *testing.T) {
 	require.Equal(t, "github", pub.Name())
 }
 
-func TestPublisherWriteCommentSuccess(t *testing.T) {
+func TestPublisherAppendNoteSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := mock_github.NewMockClient(ctrl)
 	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(nil)
 
 	pub := NewPublisher(log.Noop(), client)
-	require.NoError(t, pub.WriteComment(context.Background(), "acme/infra", 3, "hi"))
+	require.NoError(t, pub.AppendNote(context.Background(), "acme/infra", 3, "hi"))
 }
 
-func TestPublisherWriteCommentPropagatesError(t *testing.T) {
+func TestPublisherAppendNotePropagatesError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := mock_github.NewMockClient(ctrl)
 	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(errors.New("api down"))
 
 	pub := NewPublisher(log.Noop(), client)
-	err := pub.WriteComment(context.Background(), "acme/infra", 3, "hi")
+	err := pub.AppendNote(context.Background(), "acme/infra", 3, "hi")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "api down")
+}
+
+func TestPublisherUpsertStatusCreatesWhenMissing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	key := scm.StatusKey{Repo: "acme/infra", PRNumber: 3, Stack: "stg", Kind: "plan"}
+	client.EXPECT().ListIssueComments(gomock.Any(), "acme/infra", 3).Return([]scm.Note{
+		{ID: 1, Body: "unrelated"},
+	}, nil)
+	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, key.Marker()+"\nlatest plan").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	require.NoError(t, pub.UpsertStatus(context.Background(), key, "latest plan"))
+}
+
+func TestPublisherUpsertStatusUpdatesWhenPresent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	key := scm.StatusKey{Repo: "acme/infra", PRNumber: 3, Stack: "stg", Kind: "plan"}
+	client.EXPECT().ListIssueComments(gomock.Any(), "acme/infra", 3).Return([]scm.Note{
+		{ID: 9, Body: key.Marker() + "\nold"},
+	}, nil)
+	client.EXPECT().UpdateComment(gomock.Any(), "acme/infra", 9, key.Marker()+"\nnew").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	require.NoError(t, pub.UpsertStatus(context.Background(), key, "new"))
+}
+
+func TestPublisherUpsertStatusListError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	key := scm.StatusKey{Repo: "acme/infra", PRNumber: 3, Stack: "stg", Kind: "plan"}
+	client.EXPECT().ListIssueComments(gomock.Any(), "acme/infra", 3).Return(nil, errors.New("list failed"))
+
+	pub := NewPublisher(log.Noop(), client)
+	err := pub.UpsertStatus(context.Background(), key, "body")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "list failed")
+}
+
+func TestPublisherUpsertStatusUpdateError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	key := scm.StatusKey{Repo: "acme/infra", PRNumber: 3, Stack: "stg", Kind: "plan"}
+	client.EXPECT().ListIssueComments(gomock.Any(), "acme/infra", 3).Return([]scm.Note{
+		{ID: 9, Body: key.Marker()},
+	}, nil)
+	client.EXPECT().UpdateComment(gomock.Any(), "acme/infra", 9, gomock.Any()).Return(errors.New("patch failed"))
+
+	pub := NewPublisher(log.Noop(), client)
+	err := pub.UpsertStatus(context.Background(), key, "body")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "patch failed")
 }
 
 func TestPublisherAcknowledgeCommentSuccess(t *testing.T) {

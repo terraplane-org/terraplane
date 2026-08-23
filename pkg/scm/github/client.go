@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/pkg/scm"
 )
 
 //go:generate mockgen -source=client.go -destination=mock_github/mock_client.go -package=mock_github
@@ -20,6 +21,8 @@ type Client interface {
 	GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
 	GetFile(ctx context.Context, repo string, path string, revision string) (string, error)
 	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
+	UpdateComment(ctx context.Context, repo string, commentID int, body string) error
+	ListIssueComments(ctx context.Context, repo string, prNumber int) ([]scm.Note, error)
 	ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error
 }
 
@@ -165,6 +168,52 @@ func (c *client) WriteComment(ctx context.Context, repo string, prNumber int, bo
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
+}
+
+func (c *client) UpdateComment(ctx context.Context, repo string, commentID int, body string) error {
+	u := fmt.Sprintf("%s/repos/%s/issues/comments/%d", c.apiURL, repo, commentID)
+	payloadBytes, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return fmt.Errorf("failed to marshal comment payload for repository %s comment #%d: %w", repo, commentID, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPatch, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute GitHub API request to update comment in repository %s comment #%d: %w", repo, commentID, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("GitHub API request to update comment in repository %s comment #%d returned unexpected status %s: %s", repo, commentID, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
+}
+
+func (c *client) ListIssueComments(ctx context.Context, repo string, prNumber int) ([]scm.Note, error) {
+	var out []scm.Note
+	for page := 1; ; page++ {
+		u := fmt.Sprintf("%s/repos/%s/issues/%d/comments?per_page=100&page=%d", c.apiURL, repo, prNumber, page)
+		var pageComments []struct {
+			ID   int64  `json:"id"`
+			Body string `json:"body"`
+		}
+		if err := c.getJSON(ctx, u, &pageComments); err != nil {
+			return nil, fmt.Errorf("failed to list comments for repository %s PR #%d: %w", repo, prNumber, err)
+		}
+		for _, cmt := range pageComments {
+			out = append(out, scm.Note{ID: cmt.ID, Body: cmt.Body})
+		}
+		if len(pageComments) < 100 {
+			return out, nil
+		}
+	}
 }
 
 func appendRefQuery(u, ref string) (string, error) {

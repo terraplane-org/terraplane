@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	scm "github.com/xyzjace/terraplane/pkg/scm"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -54,6 +55,20 @@ func (mr *MockPublisherMockRecorder) AcknowledgeComment(ctx, repo, prNumber, com
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcknowledgeComment", reflect.TypeOf((*MockPublisher)(nil).AcknowledgeComment), ctx, repo, prNumber, commentID)
 }
 
+// AppendNote mocks base method.
+func (m *MockPublisher) AppendNote(ctx context.Context, repo string, prNumber int, body string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendNote", ctx, repo, prNumber, body)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendNote indicates an expected call of AppendNote.
+func (mr *MockPublisherMockRecorder) AppendNote(ctx, repo, prNumber, body any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendNote", reflect.TypeOf((*MockPublisher)(nil).AppendNote), ctx, repo, prNumber, body)
+}
+
 // Name mocks base method.
 func (m *MockPublisher) Name() string {
 	m.ctrl.T.Helper()
@@ -68,16 +83,16 @@ func (mr *MockPublisherMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockPublisher)(nil).Name))
 }
 
-// WriteComment mocks base method.
-func (m *MockPublisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
+// UpsertStatus mocks base method.
+func (m *MockPublisher) UpsertStatus(ctx context.Context, key scm.StatusKey, body string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteComment", ctx, repo, prNumber, body)
+	ret := m.ctrl.Call(m, "UpsertStatus", ctx, key, body)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// WriteComment indicates an expected call of WriteComment.
-func (mr *MockPublisherMockRecorder) WriteComment(ctx, repo, prNumber, body any) *gomock.Call {
+// UpsertStatus indicates an expected call of UpsertStatus.
+func (mr *MockPublisherMockRecorder) UpsertStatus(ctx, key, body any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteComment", reflect.TypeOf((*MockPublisher)(nil).WriteComment), ctx, repo, prNumber, body)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertStatus", reflect.TypeOf((*MockPublisher)(nil).UpsertStatus), ctx, key, body)
 }

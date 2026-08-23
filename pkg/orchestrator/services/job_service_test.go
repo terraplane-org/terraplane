@@ -132,6 +132,17 @@ func (s *JobServiceSuite) TestPlanUpsertsAllStacks() {
 	require.NoError(s.T(), err)
 }
 
+func (s *JobServiceSuite) TestChangeUpdatedPlansAllStacks() {
+	wh := webhook("")
+	wh.Kind = scm.EventKindChangeUpdated
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
+	s.expectUpsert("b", "stacks/b", "plan", "agent-b", "job-b")
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.NoError(s.T(), err)
+}
+
 func (s *JobServiceSuite) TestPlanNamedStack() {
 	wh := webhook("terraplane plan -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
@@ -573,7 +584,9 @@ func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
 			return nil
 		},
 	)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertStatus(gomock.Any(), scm.StatusKey{
+		Repo: job.Repo, PRNumber: int(job.PRNumber), Stack: job.StackName, Kind: "plan",
+	}, gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
 }
@@ -588,7 +601,9 @@ func (s *JobServiceSuite) TestCommitJobResultPlanFailure() {
 			return nil
 		},
 	)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertStatus(gomock.Any(), scm.StatusKey{
+		Repo: job.Repo, PRNumber: int(job.PRNumber), Stack: job.StackName, Kind: "plan",
+	}, gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "boom"))
 }
@@ -597,7 +612,9 @@ func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
 	job := resultJob(models.JobActionPlan)
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+	s.publisher.EXPECT().UpsertStatus(gomock.Any(), scm.StatusKey{
+		Repo: job.Repo, PRNumber: int(job.PRNumber), Stack: job.StackName, Kind: "plan",
+	}, gomock.Any()).Return(errors.New("github down"))
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
 }
@@ -607,7 +624,7 @@ func (s *JobServiceSuite) TestCommitJobResultApplySuccessReleasesLock() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().AppendNote(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "apply out", ""))
 }
@@ -617,7 +634,7 @@ func (s *JobServiceSuite) TestCommitJobResultApplyFailureStillReleasesLock() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().AppendNote(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "apply boom"))
 }

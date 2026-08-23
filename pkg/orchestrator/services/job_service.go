@@ -303,18 +303,34 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 		}
 	}
 
-	comment := feedback.JobResultComment(job, success, output, errMsg)
-	if err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+	j.publishJobResult(ctx, job, success, output, errMsg)
+	return nil
+}
+
+func (j *jobService) publishJobResult(ctx context.Context, job *models.Job, success bool, output, errMsg string) {
+	body := feedback.JobResultComment(job, success, output, errMsg)
+	var err error
+	if job.Action == models.JobActionPlan {
+		err = j.scmPublisher.UpsertStatus(ctx, scm.StatusKey{
+			Repo:     job.Repo,
+			PRNumber: int(job.PRNumber),
+			Stack:    job.StackName,
+			Kind:     string(job.Action),
+		}, body)
+	} else {
+		err = j.scmPublisher.AppendNote(ctx, job.Repo, int(job.PRNumber), body)
+	}
+	if err != nil {
 		j.logger.Error(
-			"Failed to write job result comment",
-			"job_id", jobID,
+			"Failed to publish job result",
+			"job_id", job.ID,
 			"repo", job.Repo,
 			"pr", job.PRNumber,
 			"stack", job.StackName,
+			"action", job.Action,
 			"error", err,
 		)
 	}
-	return nil
 }
 
 func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {

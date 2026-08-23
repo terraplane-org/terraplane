@@ -7,6 +7,17 @@ import (
 )
 
 func ParseWebhook(w *scm.Webhook) Command {
+	if w.Kind == scm.EventKindChangeUpdated {
+		return Command{Kind: KindPlan, Plan: PlanCommand{
+			base: base{
+				Repo:        w.RepositorySlug,
+				PRNumber:    w.PRNumber,
+				TriggerUser: w.TriggeringUser,
+				CommitSHA:   w.CommitSHA,
+			},
+		}}
+	}
+
 	kind := verb(w.FullCommand)
 	if kind == KindUnknown || !validArgs(kind, w.FullCommand) {
 		return Command{Kind: KindUnknown}

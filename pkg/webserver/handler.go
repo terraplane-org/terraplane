@@ -95,6 +95,9 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 
+		if webhook.CommentID == 0 {
+			continue
+		}
 		if err := h.scmPublisher.AcknowledgeComment(
 			r.Context(),
 			webhook.RepositorySlug,

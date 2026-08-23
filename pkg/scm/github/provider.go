@@ -51,6 +51,8 @@ func (p *provider) ParseWebhook(r *http.Request) ([]scm.Webhook, error) {
 		return nil, nil
 	case "issue_comment":
 		return p.parseIssueCommentWebhook(r)
+	case "pull_request":
+		return p.parsePullRequestWebhook(r)
 	default:
 		p.logger.Warn("Ignoring unhandled GitHub webhook event", "event", githubEvent)
 		return nil, nil
@@ -125,8 +127,84 @@ func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, err
 	return []scm.Webhook{webhook}, nil
 }
 
+func (p *provider) parsePullRequestWebhook(r *http.Request) ([]scm.Webhook, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read GitHub pull request webhook request body: %w", err)
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	var payload pullRequestWebhook
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GitHub pull request webhook payload: %w", err)
+	}
+
+	if !isChangeUpdatedAction(payload.Action) {
+		p.logger.Debug(
+			"Ignoring GitHub pull request webhook because the action does not update the head commit",
+			"repo", payload.Repository.FullName,
+			"pr", payload.PRNumber(),
+			"action", payload.Action,
+		)
+		return nil, nil
+	}
+
+	if payload.PullRequest.State != "open" {
+		p.logger.Debug(
+			"Ignoring GitHub pull request webhook because the pull request is not open",
+			"repo", payload.Repository.FullName,
+			"pr", payload.PRNumber(),
+			"state", payload.PullRequest.State,
+		)
+		return nil, nil
+	}
+
+	if payload.PullRequest.Draft {
+		p.logger.Debug(
+			"Ignoring GitHub pull request webhook because the pull request is a draft",
+			"repo", payload.Repository.FullName,
+			"pr", payload.PRNumber(),
+		)
+		return nil, nil
+	}
+
+	sha := payload.PullRequest.Head.SHA
+	if sha == "" {
+		return nil, fmt.Errorf("GitHub pull request webhook contained an empty head commit SHA for repository %s PR #%d", payload.Repository.FullName, payload.PRNumber())
+	}
+
+	webhook := scm.Webhook{
+		Kind:           scm.EventKindChangeUpdated,
+		RepositorySlug: payload.Repository.FullName,
+		PRNumber:       payload.PRNumber(),
+		TriggeringUser: payload.Sender.Login,
+		CommitSHA:      sha,
+	}
+
+	p.logger.Info(
+		"Received pull request change webhook",
+		"repo", webhook.RepositorySlug,
+		"pr", webhook.PRNumber,
+		"user", webhook.TriggeringUser,
+		"commit", webhook.CommitSHA,
+		"action", payload.Action,
+	)
+
+	return []scm.Webhook{webhook}, nil
+}
+
+func isChangeUpdatedAction(action string) bool {
+	switch action {
+	case "opened", "synchronize", "reopened", "ready_for_review":
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *provider) webhookToScmWebhook(webhook issueCommentWebhook, commitSHA string) scm.Webhook {
 	return scm.Webhook{
+		Kind:           scm.EventKindCommand,
 		RepositorySlug: webhook.Repository.FullName,
 		PRNumber:       webhook.Issue.Number,
 		FullCommand:    webhook.Comment.Body,

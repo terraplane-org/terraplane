@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Auto-plan on pull request open, push (synchronize), reopen, and ready-for-review
+- Sticky per-stack plan comments (`Publisher.UpsertStatus` / `AppendNote`); apply and unlock still append notes
 - `SCM_PROVIDER` ENV var to configure the chosen SCM provider at runtime
 
 ### Changed

@@ -157,6 +157,30 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 	}
 }
 
+func (s *HandlerSuite) TestWebhookChangeUpdatedEnqueuesWithoutAck() {
+	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{{
+		Kind:           scm.EventKindChangeUpdated,
+		RepositorySlug: "acme/infra",
+		PRNumber:       1,
+		TriggeringUser: "jace",
+		CommitSHA:      "abc",
+	}}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+
+	select {
+	case got := <-s.jobs.called:
+		require.Equal(s.T(), scm.EventKindChangeUpdated, got.Kind)
+		require.Empty(s.T(), got.FullCommand)
+		require.Zero(s.T(), got.CommentID)
+	case <-time.After(2 * time.Second):
+		s.T().Fatal("timed out waiting for CreatePendingJobs")
+	}
+}
+
 func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
 		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 11},

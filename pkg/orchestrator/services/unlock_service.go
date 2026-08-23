@@ -129,7 +129,7 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 func (s *unlockService) publishUnlockSuccess(ctx context.Context, unlock command.UnlockCommand, stackName string) {
 	comment := feedback.UnlockResultComment(stackName, true, "")
 	// TODO: We should handle retries here
-	if err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
+	if err := s.scmPublisher.AppendNote(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
 		s.logger.Error(
 			"Failed to write unlock result comment",
 			"repo", unlock.Repo,
@@ -142,7 +142,7 @@ func (s *unlockService) publishUnlockSuccess(ctx context.Context, unlock command
 
 func (s *unlockService) publishUnlockFailure(ctx context.Context, unlock command.UnlockCommand, stackName string, unlockErr error) {
 	comment := feedback.UnlockResultComment(stackName, false, unlockErr.Error())
-	if err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
+	if err := s.scmPublisher.AppendNote(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
 		s.logger.Error(
 			"Failed to write unlock failure comment",
 			"repo", unlock.Repo,

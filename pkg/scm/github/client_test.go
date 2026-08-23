@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/pkg/scm"
 )
 
 type ClientSuite struct {
@@ -154,6 +155,55 @@ func (s *ClientSuite) TestWriteCommentSuccess() {
 	require.NoError(s.T(), c.WriteComment(context.Background(), "acme/infra", 9, "hello pr"))
 }
 
+func (s *ClientSuite) TestUpdateCommentSuccess() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), http.MethodPatch, r.Method)
+		require.Equal(s.T(), "/repos/acme/infra/issues/comments/9", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(s.T(), err)
+		require.JSONEq(s.T(), `{"body":"updated"}`, string(body))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":9}`)
+	})
+	require.NoError(s.T(), c.UpdateComment(context.Background(), "acme/infra", 9, "updated"))
+}
+
+func (s *ClientSuite) TestUpdateCommentNonOK() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"message":"nope"}`)
+	})
+	err := c.UpdateComment(context.Background(), "acme/infra", 9, "updated")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "unexpected status")
+}
+
+func (s *ClientSuite) TestListIssueCommentsPaginates() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), "/repos/acme/infra/issues/9/comments", r.URL.Path)
+		require.Equal(s.T(), "100", r.URL.Query().Get("per_page"))
+		page := r.URL.Query().Get("page")
+		if page == "1" {
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 1, "body": "first"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{})
+	})
+	got, err := c.ListIssueComments(context.Background(), "acme/infra", 9)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), []scm.Note{{ID: 1, Body: "first"}}, got)
+}
+
+func (s *ClientSuite) TestListIssueCommentsError() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"boom"}`)
+	})
+	_, err := c.ListIssueComments(context.Background(), "acme/infra", 9)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to list comments")
+}
+
 func (s *ClientSuite) TestReactToCommentSuccess() {
 	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(s.T(), http.MethodPost, r.Method)
@@ -251,6 +301,17 @@ func (s *ClientSuite) TestWriteCommentTransportError() {
 	require.Contains(s.T(), err.Error(), "failed to execute GitHub API request to write comment")
 }
 
+func (s *ClientSuite) TestUpdateCommentTransportError() {
+	c := &client{
+		accessToken: "token",
+		httpClient:  http.DefaultClient,
+		apiURL:      "http://127.0.0.1:1",
+	}
+	err := c.UpdateComment(context.Background(), "acme/infra", 1, "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to execute GitHub API request to update comment")
+}
+
 func (s *ClientSuite) TestGetFileNonOK() {
 	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -276,6 +337,13 @@ func (s *ClientSuite) TestGetFileAppendRefQueryError() {
 func (s *ClientSuite) TestWriteCommentRequestBuildError() {
 	c := &client{accessToken: "token", httpClient: http.DefaultClient, apiURL: "http://example.com/\x00"}
 	err := c.WriteComment(context.Background(), "acme/infra", 1, "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
+}
+
+func (s *ClientSuite) TestUpdateCommentRequestBuildError() {
+	c := &client{accessToken: "token", httpClient: http.DefaultClient, apiURL: "http://example.com/\x00"}
+	err := c.UpdateComment(context.Background(), "acme/infra", 1, "x")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
 }

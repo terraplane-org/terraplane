@@ -55,3 +55,24 @@ func issueCommentPayload(t *testing.T, action string, onPR bool, commentBody str
 	require.NoError(t, err)
 	return b
 }
+
+func pullRequestPayload(t *testing.T, action, state string, draft bool, sha string) []byte {
+	t.Helper()
+	payload := map[string]any{
+		"action": action,
+		"number": 42,
+		"pull_request": map[string]any{
+			"number": 42,
+			"state":  state,
+			"draft":  draft,
+			"head":   map[string]any{"sha": sha},
+		},
+		"sender": map[string]any{"login": "jace"},
+		"repository": map[string]any{
+			"full_name": "acme/infra",
+		},
+	}
+	b, err := json.Marshal(payload)
+	require.NoError(t, err)
+	return b
+}
