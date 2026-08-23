@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/log"
@@ -12,8 +13,8 @@ import (
 )
 
 type Manager interface {
-	RunPlan(ctx context.Context, workspaceDir, stackName, planFlags string) (string, error)
-	RunApply(ctx context.Context, workspaceDir, stackName string) (string, error)
+	RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string) (string, error)
+	RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string) (string, error)
 }
 
 //go:generate mockgen -source=manager.go -destination=mock_terraform/mock_manager.go -package=mock_terraform
@@ -44,8 +45,8 @@ func NewManagerWith(logger log.Logger, defaultVersion string, versionManager Ver
 	}
 }
 
-func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, planFlags string) (string, error) {
-	terraformDir, version, err := m.resolveStack(workspaceDir, stackName)
+func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string) (string, error) {
+	terraformDir, version, err := m.resolveStack(workspaceDir, stackName, toolVersion)
 	if err != nil {
 		return "", err
 	}
@@ -62,8 +63,8 @@ func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, planFlag
 	return m.runner.Plan(ctx, terraformBin, terraformDir, planFlags)
 }
 
-func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName string) (string, error) {
-	terraformDir, version, err := m.resolveStack(workspaceDir, stackName)
+func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string) (string, error) {
+	terraformDir, version, err := m.resolveStack(workspaceDir, stackName, toolVersion)
 	if err != nil {
 		return "", err
 	}
@@ -76,7 +77,7 @@ func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName string) 
 	return m.runner.Apply(ctx, terraformBin, terraformDir)
 }
 
-func (m *manager) resolveStack(workspaceDir, stackName string) (terraformDir, version string, err error) {
+func (m *manager) resolveStack(workspaceDir, stackName, toolVersion string) (terraformDir, version string, err error) {
 	file, err := os.ReadFile(filepath.Join(workspaceDir, "terraplane.yaml"))
 	if err != nil {
 		return "", "", fmt.Errorf("failed to read terraplane config: %w", err)
@@ -93,7 +94,10 @@ func (m *manager) resolveStack(workspaceDir, stackName string) (terraformDir, ve
 	}
 	stack := stacks[0]
 
-	version = stack.TerraformVersion
+	version = strings.TrimSpace(toolVersion)
+	if version == "" {
+		version = stack.ToolVersion
+	}
 	if version == "" {
 		version = m.defaultVersion
 	}

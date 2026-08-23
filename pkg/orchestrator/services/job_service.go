@@ -103,6 +103,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			"commit_sha":   webhook.CommitSHA,
 			"stack_name":   stack.Name,
 			"dir":          stack.Dir,
+			"tool_version": stack.ToolVersion,
 		}
 		if action == string(models.JobActionPlan) {
 			payload["plan_flags"] = cmd.Plan.PlanFlags
@@ -333,6 +334,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 
 	stacks := []string{job.StackName}
 	triggerUser := payloadString(payload, "trigger_user")
+	toolVersion := payloadString(payload, "tool_version")
 
 	switch job.Action {
 	case models.JobActionPlan:
@@ -347,6 +349,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		plan.Agent = job.AgentID
 		plan.JobID = job.ID
 		plan.Dir = job.Dir
+		plan.ToolVersion = toolVersion
 		return command.Command{Kind: command.KindPlan, Plan: plan}, nil
 	case models.JobActionApply:
 		apply := command.ApplyCommand{Stacks: stacks}
@@ -357,6 +360,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		apply.Agent = job.AgentID
 		apply.JobID = job.ID
 		apply.Dir = job.Dir
+		apply.ToolVersion = toolVersion
 		return command.Command{Kind: command.KindApply, Apply: apply}, nil
 	case models.JobActionUnlock:
 		unlock := command.UnlockCommand{Stacks: stacks}
@@ -367,6 +371,7 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		unlock.Agent = job.AgentID
 		unlock.JobID = job.ID
 		unlock.Dir = job.Dir
+		unlock.ToolVersion = toolVersion
 		return command.Command{Kind: command.KindUnlock, Unlock: unlock}, nil
 	default:
 		return command.Command{}, fmt.Errorf("unknown job action: %s", job.Action)
