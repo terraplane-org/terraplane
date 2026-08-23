@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/agent/orchestrator"
@@ -17,6 +18,7 @@ type Handlers struct {
 	terraformManager   terraform.Manager
 	orchestratorClient orchestrator.Client
 	agentID            string
+	progressInterval   time.Duration
 }
 
 func New(logger log.Logger, config *config.Config, workspaceManager workspace.Manager, terraformManager terraform.Manager, orchestratorClient orchestrator.Client) *Handlers {
@@ -26,6 +28,7 @@ func New(logger log.Logger, config *config.Config, workspaceManager workspace.Ma
 		workspaceManager:   workspaceManager,
 		terraformManager:   terraformManager,
 		orchestratorClient: orchestratorClient,
+		progressInterval:   config.AgentProgressInterval,
 	}
 }
 

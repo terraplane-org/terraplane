@@ -5,15 +5,40 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
 )
 
 type Command struct {
-	Name string
-	Args []string
-	Dir  string
-	Env  []string
+	Name   string
+	Args   []string
+	Dir    string
+	Env    []string
+	Output io.Writer
+}
+
+// StreamBuffer is a thread-safe writer that snapshots combined process output.
+type StreamBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func NewStreamBuffer() *StreamBuffer {
+	return &StreamBuffer{}
+}
+
+func (s *StreamBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *StreamBuffer) Snapshot() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 type Result struct {
@@ -42,6 +67,10 @@ func (OSRunner) Run(ctx context.Context, cmd Command) (Result, error) {
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
 	c.Stderr = &stderr
+	if cmd.Output != nil {
+		c.Stdout = io.MultiWriter(&stdout, cmd.Output)
+		c.Stderr = io.MultiWriter(&stderr, cmd.Output)
+	}
 
 	err := c.Run()
 	result := Result{

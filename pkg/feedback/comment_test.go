@@ -85,6 +85,42 @@ func TestPlanResultComment(t *testing.T) {
 		require.Contains(t, got, "`terraform/x`")
 		require.NotContains(t, got, "@")
 	})
+
+	t.Run("truncates huge output", func(t *testing.T) {
+		got := feedback.PlanResultComment(job, true, strings.Repeat("x", 70000), "")
+		require.Contains(t, got, "...(truncated)")
+		require.Less(t, len(got), 70000)
+	})
+}
+
+func TestJobProgressComment(t *testing.T) {
+	job := &models.Job{
+		StackName: "stg-foundation",
+		Dir:       "terraform/stg",
+		CommitSHA: "abcdef0",
+		Action:    models.JobActionPlan,
+	}
+
+	t.Run("plan running with output", func(t *testing.T) {
+		got := feedback.JobProgressComment(job, "Refreshing state...")
+		require.Contains(t, got, "### `stg-foundation` · plan · ⏳ running")
+		require.Contains(t, got, "<details open>")
+		require.Contains(t, got, "Output (live)")
+		require.Contains(t, got, "Refreshing state...")
+	})
+
+	t.Run("apply running empty output", func(t *testing.T) {
+		apply := *job
+		apply.Action = models.JobActionApply
+		got := feedback.JobProgressComment(&apply, "  ")
+		require.Contains(t, got, "· apply · ⏳ running")
+		require.Contains(t, got, "waiting for terraform")
+	})
+
+	t.Run("no stack name", func(t *testing.T) {
+		got := feedback.JobProgressComment(&models.Job{Action: models.JobActionPlan}, "hi")
+		require.Contains(t, got, "### plan · ⏳ running")
+	})
 }
 
 func TestJobResultComment(t *testing.T) {

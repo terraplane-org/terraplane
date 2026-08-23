@@ -22,6 +22,7 @@ type Config struct {
 	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
 	AgentPollInterval                     time.Duration `mapstructure:"AGENT_POLL_INTERVAL"`
 	AgentHeartbeatInterval                time.Duration `mapstructure:"AGENT_HEARTBEAT_INTERVAL"`
+	AgentProgressInterval                 time.Duration `mapstructure:"AGENT_PROGRESS_INTERVAL"`
 	AgentID                               string        `mapstructure:"AGENT_ID"`
 	AgentSCMSSHKeyPath                    string        `mapstructure:"AGENT_SCM_SSH_KEY_PATH"`
 	AgentWorkDir                          string        `mapstructure:"AGENT_WORK_DIR"`
@@ -74,6 +75,7 @@ func init() {
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://127.0.0.1:8080")
 	viper.SetDefault("AGENT_POLL_INTERVAL", "5s")
 	viper.SetDefault("AGENT_HEARTBEAT_INTERVAL", "30s")
+	viper.SetDefault("AGENT_PROGRESS_INTERVAL", "5s")
 	viper.SetDefault("AGENT_ID", "")
 	viper.SetDefault("AGENT_SCM_SSH_KEY_PATH", "")
 	viper.SetDefault("AGENT_WORK_DIR", "")

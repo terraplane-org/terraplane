@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Stack `tool_version` in `terraplane.yaml`
 - `SCM_PROVIDER` ENV var to configure the chosen SCM provider at runtime
+- Agents periodically push plan/apply output to the orchestrator (`POST /agent/jobs/{id}/progress`); the PR comment is created and edited in place while Terraform runs (`AGENT_PROGRESS_INTERVAL`, default 5s)
 
 ### Changed
 

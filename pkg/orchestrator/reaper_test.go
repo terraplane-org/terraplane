@@ -27,6 +27,9 @@ func (s *reaperJobs) ReleaseClaim(context.Context, string) error           { ret
 func (s *reaperJobs) FailClaimedJob(context.Context, string, string) error { return nil }
 func (s *reaperJobs) RefreshAgentClaims(context.Context, string) error     { return nil }
 func (s *reaperJobs) AckJob(context.Context, string, string) error         { return nil }
+func (s *reaperJobs) RecordJobProgress(context.Context, string, string, string) error {
+	return nil
+}
 func (s *reaperJobs) CommitJobResult(context.Context, string, string, string, string, string) error {
 	return nil
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/command"
 )
 
@@ -49,7 +50,11 @@ func (h *Handlers) handlePlan(ctx context.Context, cmd *command.PlanCommand) {
 		}
 	}()
 
-	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion, cmd.PlanFlags)
+	buf := process.NewStreamBuffer()
+	stopProgress := h.streamProgress(ctx, jobID, buf)
+	defer stopProgress()
+
+	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion, cmd.PlanFlags, buf)
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform plan",

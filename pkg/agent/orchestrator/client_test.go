@@ -206,3 +206,29 @@ func TestSubmitResultServerError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "submit result failed")
 }
+
+func TestSubmitProgressSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.Equal(t, "/agent/jobs/job-1/progress", r.URL.Path)
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "agent-dev", body["agent_id"])
+		require.Equal(t, "Refreshing", body["output"])
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	require.NoError(t, newTestClient(t, srv).SubmitProgress(context.Background(), "job-1", "agent-dev", "Refreshing"))
+}
+
+func TestSubmitProgressServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	err := newTestClient(t, srv).SubmitProgress(context.Background(), "job-1", "agent-dev", "x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "submit progress failed")
+}

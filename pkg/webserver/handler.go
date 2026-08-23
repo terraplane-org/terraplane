@@ -42,6 +42,7 @@ func NewHandler(
 	h.mux.Handle("POST /agent/jobs/claim", h.requireBearer(http.HandlerFunc(h.agentJobClaimHandler)))
 	h.mux.Handle("POST /agent/jobs/{id}/heartbeat", h.requireBearer(http.HandlerFunc(h.agentHeartbeatHandler)))
 	h.mux.Handle("POST /agent/jobs/{id}/ack", h.requireBearer(http.HandlerFunc(h.agentJobAckHandler)))
+	h.mux.Handle("POST /agent/jobs/{id}/progress", h.requireBearer(http.HandlerFunc(h.agentJobProgressHandler)))
 	h.mux.Handle("POST /agent/jobs/{id}/result", h.requireBearer(http.HandlerFunc(h.agentJobResultHandler)))
 
 	return h
@@ -165,6 +166,24 @@ func (h *handler) agentJobAckHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.jobService.AckJob(r.Context(), jobID, payload.AgentID); err != nil {
 		h.logger.Error("Failed to ack job", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to ack job")
+		return
+	}
+
+	writeNoContent(w)
+}
+
+func (h *handler) agentJobProgressHandler(w http.ResponseWriter, r *http.Request) {
+	var payload agentJobProgressPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent job progress request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent job progress request body")
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if err := h.jobService.RecordJobProgress(r.Context(), jobID, payload.AgentID, payload.Output); err != nil {
+		h.logger.Error("Failed to record job progress", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to record job progress")
 		return
 	}
 

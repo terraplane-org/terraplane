@@ -68,6 +68,21 @@ func (mr *MockPublisherMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockPublisher)(nil).Name))
 }
 
+// UpsertComment mocks base method.
+func (m *MockPublisher) UpsertComment(ctx context.Context, repo string, prNumber, commentID int, body string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertComment", ctx, repo, prNumber, commentID, body)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertComment indicates an expected call of UpsertComment.
+func (mr *MockPublisherMockRecorder) UpsertComment(ctx, repo, prNumber, commentID, body any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertComment", reflect.TypeOf((*MockPublisher)(nil).UpsertComment), ctx, repo, prNumber, commentID, body)
+}
+
 // WriteComment mocks base method.
 func (m *MockPublisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
 	m.ctrl.T.Helper()

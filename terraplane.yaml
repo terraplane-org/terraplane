@@ -11,3 +11,5 @@ environments:
         dir: terraform/environments/staging/ap-southeast-2/runtime
       - name: stg-apse2-services
         dir: terraform/environments/staging/ap-southeast-2/services
+      - name: stg-apse2-slow
+        dir: terraform/environments/staging/ap-southeast-2/slow

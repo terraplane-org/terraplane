@@ -39,6 +39,50 @@ func TestPublisherWriteCommentPropagatesError(t *testing.T) {
 	require.Contains(t, err.Error(), "api down")
 }
 
+func TestPublisherUpsertCommentCreates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().CreateComment(gomock.Any(), "acme/infra", 3, "hi").Return(42, nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	id, err := pub.UpsertComment(context.Background(), "acme/infra", 3, 0, "hi")
+	require.NoError(t, err)
+	require.Equal(t, 42, id)
+}
+
+func TestPublisherUpsertCommentUpdates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().UpdateComment(gomock.Any(), "acme/infra", 42, "hi").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	id, err := pub.UpsertComment(context.Background(), "acme/infra", 3, 42, "hi")
+	require.NoError(t, err)
+	require.Equal(t, 42, id)
+}
+
+func TestPublisherUpsertCommentCreateError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().CreateComment(gomock.Any(), "acme/infra", 3, "hi").Return(0, errors.New("api down"))
+
+	pub := NewPublisher(log.Noop(), client)
+	_, err := pub.UpsertComment(context.Background(), "acme/infra", 3, 0, "hi")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "api down")
+}
+
+func TestPublisherUpsertCommentUpdateError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().UpdateComment(gomock.Any(), "acme/infra", 42, "hi").Return(errors.New("api down"))
+
+	pub := NewPublisher(log.Noop(), client)
+	_, err := pub.UpsertComment(context.Background(), "acme/infra", 3, 42, "hi")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "api down")
+}
+
 func TestPublisherAcknowledgeCommentSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := mock_github.NewMockClient(ctrl)

@@ -154,6 +154,67 @@ func (s *ClientSuite) TestWriteCommentSuccess() {
 	require.NoError(s.T(), c.WriteComment(context.Background(), "acme/infra", 9, "hello pr"))
 }
 
+func (s *ClientSuite) TestCreateCommentEmptyID() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":0}`)
+	})
+	_, err := c.CreateComment(context.Background(), "acme/infra", 9, "hello pr")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "empty comment ID")
+}
+
+func (s *ClientSuite) TestCreateCommentInvalidJSON() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{`)
+	})
+	_, err := c.CreateComment(context.Background(), "acme/infra", 9, "hello pr")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to decode GitHub comment response")
+}
+
+func (s *ClientSuite) TestUpdateCommentSuccess() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), http.MethodPatch, r.Method)
+		require.Equal(s.T(), "/repos/acme/infra/issues/comments/99", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(s.T(), err)
+		require.JSONEq(s.T(), `{"body":"updated"}`, string(body))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":99}`)
+	})
+	require.NoError(s.T(), c.UpdateComment(context.Background(), "acme/infra", 99, "updated"))
+}
+
+func (s *ClientSuite) TestUpdateCommentNonOK() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"message":"gone"}`)
+	})
+	err := c.UpdateComment(context.Background(), "acme/infra", 99, "updated")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "unexpected status")
+}
+
+func (s *ClientSuite) TestUpdateCommentTransportError() {
+	c := &client{
+		accessToken: "token",
+		httpClient:  http.DefaultClient,
+		apiURL:      "http://127.0.0.1:1",
+	}
+	err := c.UpdateComment(context.Background(), "acme/infra", 99, "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to execute GitHub API request to update comment")
+}
+
+func (s *ClientSuite) TestUpdateCommentRequestBuildError() {
+	c := &client{accessToken: "token", httpClient: http.DefaultClient, apiURL: "http://example.com/\x00"}
+	err := c.UpdateComment(context.Background(), "acme/infra", 99, "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
+}
+
 func (s *ClientSuite) TestReactToCommentSuccess() {
 	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(s.T(), http.MethodPost, r.Method)

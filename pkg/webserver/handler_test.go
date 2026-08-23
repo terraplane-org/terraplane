@@ -31,8 +31,15 @@ type stubJobs struct {
 	refreshed  []string
 	ackErr     error
 	acked      []string
+	progressErr error
+	progressed []progressCall
 	commitErr  error
 	committed  []commitCall
+}
+
+type progressCall struct {
+	jobID  string
+	output string
 }
 
 type commitCall struct {
@@ -64,6 +71,10 @@ func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
 func (s *stubJobs) AckJob(_ context.Context, jobID, agentID string) error {
 	s.acked = append(s.acked, jobID)
 	return s.ackErr
+}
+func (s *stubJobs) RecordJobProgress(_ context.Context, jobID, agentID, output string) error {
+	s.progressed = append(s.progressed, progressCall{jobID: jobID, output: output})
+	return s.progressErr
 }
 func (s *stubJobs) CommitJobResult(_ context.Context, jobID, agentID, result, output, errMsg string) error {
 	s.committed = append(s.committed, commitCall{
@@ -231,6 +242,7 @@ func (s *HandlerSuite) TestBearerRequiredOnAgentRoutes() {
 		"/agent/jobs/claim",
 		"/agent/jobs/job-1/heartbeat",
 		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/progress",
 		"/agent/jobs/job-1/result",
 	}
 	for _, path := range paths {
@@ -250,11 +262,15 @@ func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
 	for _, path := range []string{
 		"/agent/jobs/job-1/heartbeat",
 		"/agent/jobs/job-1/ack",
+		"/agent/jobs/job-1/progress",
 		"/agent/jobs/job-1/result",
 	} {
 		body := `{"agent_id":"agent-dev"}`
 		if path == "/agent/jobs/job-1/result" {
 			body = `{"agent_id":"agent-dev","result":"success"}`
+		}
+		if path == "/agent/jobs/job-1/progress" {
+			body = `{"agent_id":"agent-dev","output":"Refreshing"}`
 		}
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer secret")
@@ -359,6 +375,26 @@ func (s *HandlerSuite) TestAgentAckServiceError() {
 	rec := s.agentPOST("/agent/jobs/job-1/ack", `{"agent_id":"agent-dev"}`)
 	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
 	require.Equal(s.T(), []string{"job-1"}, s.jobs.acked)
+}
+
+func (s *HandlerSuite) TestAgentProgressRecordsOutput() {
+	rec := s.agentPOST("/agent/jobs/job-1/progress", `{"agent_id":"agent-dev","output":"Refreshing"}`)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Empty(s.T(), rec.Body.String())
+	require.Equal(s.T(), []progressCall{{jobID: "job-1", output: "Refreshing"}}, s.jobs.progressed)
+}
+
+func (s *HandlerSuite) TestAgentProgressInvalidJSON() {
+	rec := s.agentPOST("/agent/jobs/job-1/progress", `{`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Empty(s.T(), s.jobs.progressed)
+}
+
+func (s *HandlerSuite) TestAgentProgressServiceError() {
+	s.jobs.progressErr = errors.New("db")
+	rec := s.agentPOST("/agent/jobs/job-1/progress", `{"agent_id":"agent-dev","output":"x"}`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Equal(s.T(), []progressCall{{jobID: "job-1", output: "x"}}, s.jobs.progressed)
 }
 
 func (s *HandlerSuite) TestAgentResultCommitsJob() {

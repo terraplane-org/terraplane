@@ -56,6 +56,25 @@ func PlanResultComment(job *models.Job, success bool, output, errMsg string) str
 	return b.String()
 }
 
+// JobProgressComment formats in-progress plan/apply output for a PR comment that
+// is edited as Terraform streams.
+func JobProgressComment(job *models.Job, output string) string {
+	var b strings.Builder
+	action := "plan"
+	if job.Action == models.JobActionApply {
+		action = "apply"
+	}
+	switch {
+	case job.StackName != "":
+		fmt.Fprintf(&b, "### `%s` · %s · ⏳ running\n", job.StackName, action)
+	default:
+		fmt.Fprintf(&b, "### %s · ⏳ running\n", action)
+	}
+	writeMeta(&b, job)
+	writeLiveOutput(&b, output)
+	return b.String()
+}
+
 // ApplyResultComment formats an apply job result as a GitHub PR comment body.
 func ApplyResultComment(job *models.Job, success bool, output, errMsg string) string {
 	var b strings.Builder
@@ -139,8 +158,35 @@ func writeCollapsedOutput(b *strings.Builder, output string) {
 	}
 	b.WriteString("\n<details>\n")
 	b.WriteString("<summary>Output</summary>\n\n")
-	writeFencedBlock(b, output)
+	writeFencedBlock(b, tailOutput(output))
 	b.WriteString("</details>\n")
+}
+
+func writeLiveOutput(b *strings.Builder, output string) {
+	output = strings.TrimSpace(output)
+	b.WriteString("\n<details open>\n")
+	b.WriteString("<summary>Output (live)</summary>\n\n")
+	if output == "" {
+		b.WriteString("```\nwaiting for terraform…\n```\n")
+	} else {
+		writeFencedBlock(b, tailOutput(output))
+	}
+	b.WriteString("</details>\n")
+}
+
+const githubOutputMaxBytes = 60000
+
+func tailOutput(output string) string {
+	if len(output) <= githubOutputMaxBytes {
+		return output
+	}
+	const prefix = "...(truncated)\n"
+	keep := githubOutputMaxBytes
+	tail := output[len(output)-keep:]
+	for len(tail) > 0 && tail[0]&0xc0 == 0x80 {
+		tail = tail[1:]
+	}
+	return prefix + tail
 }
 
 func statusLabel(success bool) string {

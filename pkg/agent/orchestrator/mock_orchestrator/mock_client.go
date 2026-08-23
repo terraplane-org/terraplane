@@ -84,6 +84,20 @@ func (mr *MockClientMockRecorder) Heartbeat(ctx, jobID, agentID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Heartbeat", reflect.TypeOf((*MockClient)(nil).Heartbeat), ctx, jobID, agentID)
 }
 
+// SubmitProgress mocks base method.
+func (m *MockClient) SubmitProgress(ctx context.Context, jobID, agentID, output string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubmitProgress", ctx, jobID, agentID, output)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SubmitProgress indicates an expected call of SubmitProgress.
+func (mr *MockClientMockRecorder) SubmitProgress(ctx, jobID, agentID, output any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitProgress", reflect.TypeOf((*MockClient)(nil).SubmitProgress), ctx, jobID, agentID, output)
+}
+
 // SubmitResult mocks base method.
 func (m *MockClient) SubmitResult(ctx context.Context, jobID, agentID string, success bool, output, errMsg string) error {
 	m.ctrl.T.Helper()

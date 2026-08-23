@@ -16,6 +16,7 @@ type Client interface {
 	ClaimJob(ctx context.Context, agentID string) (*command.Command, error)
 	Heartbeat(ctx context.Context, jobID string, agentID string) error
 	Ack(ctx context.Context, jobID string, agentID string) error
+	SubmitProgress(ctx context.Context, jobID string, agentID string, output string) error
 	SubmitResult(ctx context.Context, jobID string, agentID string, success bool, output string, errMsg string) error
 }
 
@@ -86,6 +87,22 @@ func (c *client) Ack(ctx context.Context, jobID string, agentID string) error {
 
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("ack job failed: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *client) SubmitProgress(ctx context.Context, jobID string, agentID string, output string) error {
+	resp, err := c.post(ctx, fmt.Sprintf("/agent/jobs/%s/progress", jobID), map[string]string{
+		"agent_id": agentID,
+		"output":   output,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("submit progress failed: %s", resp.Status)
 	}
 	return nil
 }

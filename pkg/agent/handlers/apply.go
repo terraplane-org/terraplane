@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/command"
 )
 
@@ -46,7 +47,11 @@ func (h *Handlers) handleApply(ctx context.Context, cmd *command.ApplyCommand) {
 		}
 	}()
 
-	output, err := h.terraformManager.RunApply(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion)
+	buf := process.NewStreamBuffer()
+	stopProgress := h.streamProgress(ctx, jobID, buf)
+	defer stopProgress()
+
+	output, err := h.terraformManager.RunApply(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion, buf)
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform apply",

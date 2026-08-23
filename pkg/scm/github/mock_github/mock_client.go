@@ -40,6 +40,21 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
 }
 
+// CreateComment mocks base method.
+func (m *MockClient) CreateComment(ctx context.Context, repo string, prNumber int, body string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateComment", ctx, repo, prNumber, body)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateComment indicates an expected call of CreateComment.
+func (mr *MockClientMockRecorder) CreateComment(ctx, repo, prNumber, body any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateComment", reflect.TypeOf((*MockClient)(nil).CreateComment), ctx, repo, prNumber, body)
+}
+
 // GetCommitSHA mocks base method.
 func (m *MockClient) GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error) {
 	m.ctrl.T.Helper()
@@ -82,6 +97,20 @@ func (m *MockClient) ReactToComment(ctx context.Context, repo string, commentID 
 func (mr *MockClientMockRecorder) ReactToComment(ctx, repo, commentID, reaction any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReactToComment", reflect.TypeOf((*MockClient)(nil).ReactToComment), ctx, repo, commentID, reaction)
+}
+
+// UpdateComment mocks base method.
+func (m *MockClient) UpdateComment(ctx context.Context, repo string, commentID int, body string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateComment", ctx, repo, commentID, body)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateComment indicates an expected call of UpdateComment.
+func (mr *MockClientMockRecorder) UpdateComment(ctx, repo, commentID, body any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateComment", reflect.TypeOf((*MockClient)(nil).UpdateComment), ctx, repo, commentID, body)
 }
 
 // WriteComment mocks base method.

@@ -18,6 +18,11 @@ type agentJobAckPayload struct {
 	AgentID string `json:"agent_id"`
 }
 
+type agentJobProgressPayload struct {
+	AgentID string `json:"agent_id"`
+	Output  string `json:"output"`
+}
+
 type agentJobResultPayload struct {
 	AgentID string `json:"agent_id"`
 	Result  string `json:"result"`

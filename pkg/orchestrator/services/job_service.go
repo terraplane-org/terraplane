@@ -17,7 +17,10 @@ import (
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
 
-const applyLockWorkspace = "default"
+const (
+	applyLockWorkspace   = "default"
+	feedbackCommentIDKey = "feedback_comment_id"
+)
 
 type JobService interface {
 	CreatePendingJobs(ctx context.Context, webhook *scm.Webhook) error
@@ -27,6 +30,7 @@ type JobService interface {
 	ReapExpiredClaims(ctx context.Context) error
 	RefreshAgentClaims(ctx context.Context, agentID string) error
 	AckJob(ctx context.Context, jobID, agentID string) error
+	RecordJobProgress(ctx context.Context, jobID, agentID, output string) error
 	CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error
 }
 
@@ -265,6 +269,50 @@ func (j *jobService) AckJob(ctx context.Context, jobID, agentID string) error {
 	return nil
 }
 
+func (j *jobService) RecordJobProgress(ctx context.Context, jobID, agentID, output string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+	if err := validateJobAgent(job, agentID); err != nil {
+		return err
+	}
+	if job.Status != models.JobStatusRunning {
+		return fmt.Errorf("%w: job %s is %s, expected running", ErrJobInvalidStatus, jobID, job.Status)
+	}
+	if job.Action == models.JobActionUnlock {
+		return nil
+	}
+
+	job.Output = output
+	payload, err := unmarshalJobPayload(job.Payload)
+	if err != nil {
+		payload = map[string]any{}
+	}
+	commentID := payloadCommentID(payload)
+	body := feedback.JobProgressComment(job, output)
+	newID, commentErr := j.scmPublisher.UpsertComment(ctx, job.Repo, int(job.PRNumber), commentID, body)
+	if commentErr != nil {
+		j.logger.Error(
+			"Failed to publish job progress comment",
+			"job_id", jobID,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", commentErr,
+		)
+	} else if newID != 0 {
+		payload[feedbackCommentIDKey] = newID
+		encoded, _ := json.Marshal(payload)
+		job.Payload = string(encoded)
+	}
+
+	if err := j.jobRepository.Update(ctx, job); err != nil {
+		return fmt.Errorf("failed to update job %s progress: %w", jobID, err)
+	}
+	return nil
+}
+
 func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error {
 	job, err := j.jobRepository.Get(ctx, jobID)
 	if err != nil {
@@ -305,7 +353,7 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 	}
 
 	comment := feedback.JobResultComment(job, success, output, errMsg)
-	if err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
+	if err := j.publishJobComment(ctx, job, comment); err != nil {
 		j.logger.Error(
 			"Failed to write job result comment",
 			"job_id", jobID,
@@ -316,6 +364,16 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 		)
 	}
 	return nil
+}
+
+func (j *jobService) publishJobComment(ctx context.Context, job *models.Job, body string) error {
+	payload, _ := unmarshalJobPayload(job.Payload)
+	commentID := payloadCommentID(payload)
+	if commentID != 0 {
+		_, err := j.scmPublisher.UpsertComment(ctx, job.Repo, int(job.PRNumber), commentID, body)
+		return err
+	}
+	return j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), body)
 }
 
 func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {
@@ -399,6 +457,28 @@ func payloadString(payload map[string]any, key string) string {
 		return ""
 	}
 	return s
+}
+
+func payloadCommentID(payload map[string]any) int {
+	v, ok := payload[feedbackCommentIDKey]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
 }
 
 func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]string, []string, string) {

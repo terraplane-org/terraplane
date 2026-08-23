@@ -11,6 +11,7 @@ package mock_terraform
 
 import (
 	context "context"
+	io "io"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -41,45 +42,45 @@ func (m *MockRunner) EXPECT() *MockRunnerMockRecorder {
 }
 
 // Apply mocks base method.
-func (m *MockRunner) Apply(ctx context.Context, terraformBin, workDir string) (string, error) {
+func (m *MockRunner) Apply(ctx context.Context, terraformBin, workDir string, output io.Writer) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Apply", ctx, terraformBin, workDir)
+	ret := m.ctrl.Call(m, "Apply", ctx, terraformBin, workDir, output)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Apply indicates an expected call of Apply.
-func (mr *MockRunnerMockRecorder) Apply(ctx, terraformBin, workDir any) *gomock.Call {
+func (mr *MockRunnerMockRecorder) Apply(ctx, terraformBin, workDir, output any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockRunner)(nil).Apply), ctx, terraformBin, workDir)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockRunner)(nil).Apply), ctx, terraformBin, workDir, output)
 }
 
 // Init mocks base method.
-func (m *MockRunner) Init(ctx context.Context, terraformBin, workDir string) error {
+func (m *MockRunner) Init(ctx context.Context, terraformBin, workDir string, output io.Writer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", ctx, terraformBin, workDir)
+	ret := m.ctrl.Call(m, "Init", ctx, terraformBin, workDir, output)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockRunnerMockRecorder) Init(ctx, terraformBin, workDir any) *gomock.Call {
+func (mr *MockRunnerMockRecorder) Init(ctx, terraformBin, workDir, output any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockRunner)(nil).Init), ctx, terraformBin, workDir)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockRunner)(nil).Init), ctx, terraformBin, workDir, output)
 }
 
 // Plan mocks base method.
-func (m *MockRunner) Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error) {
+func (m *MockRunner) Plan(ctx context.Context, terraformBin, workDir, planFlags string, output io.Writer) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Plan", ctx, terraformBin, workDir, planFlags)
+	ret := m.ctrl.Call(m, "Plan", ctx, terraformBin, workDir, planFlags, output)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Plan indicates an expected call of Plan.
-func (mr *MockRunnerMockRecorder) Plan(ctx, terraformBin, workDir, planFlags any) *gomock.Call {
+func (mr *MockRunnerMockRecorder) Plan(ctx, terraformBin, workDir, planFlags, output any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Plan", reflect.TypeOf((*MockRunner)(nil).Plan), ctx, terraformBin, workDir, planFlags)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Plan", reflect.TypeOf((*MockRunner)(nil).Plan), ctx, terraformBin, workDir, planFlags, output)
 }

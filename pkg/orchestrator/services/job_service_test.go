@@ -574,6 +574,95 @@ func (s *JobServiceSuite) TestAckJobUpdateFailure() {
 	require.Contains(s.T(), err.Error(), "failed to update job")
 }
 
+func (s *JobServiceSuite) TestRecordJobProgressCreatesComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"trigger_user":"jace"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), job.Repo, int(job.PRNumber), 0, gomock.Any()).Return(99, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), "Refreshing", updated.Output)
+			require.Contains(s.T(), updated.Payload, `"feedback_comment_id":99`)
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "Refreshing"))
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressUpdatesExistingComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"feedback_comment_id":99}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), job.Repo, int(job.PRNumber), 99, gomock.Any()).Return(99, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "still going"))
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressCommentFailureStillSavesOutput() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, errors.New("github down"))
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.AssignableToTypeOf(&models.Job{})).DoAndReturn(
+		func(_ context.Context, updated *models.Job) error {
+			require.Equal(s.T(), "partial", updated.Output)
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "partial"))
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressInvalidPayloadStillPublishes() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), job.Repo, int(job.PRNumber), 0, gomock.Any()).Return(7, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressSkipsUnlock() {
+	job := resultJob(models.JobActionUnlock)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	require.NoError(s.T(), s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "ignored"))
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressWrongAgent() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	err := s.svc.RecordJobProgress(context.Background(), "job-1", "other-agent", "x")
+	require.ErrorIs(s.T(), err, services.ErrJobWrongAgent)
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressWrongStatus() {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusClaimed
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	err := s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "x")
+	require.ErrorIs(s.T(), err, services.ErrJobInvalidStatus)
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
+}
+
+func (s *JobServiceSuite) TestRecordJobProgressUpdateFailure() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(1, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(errors.New("db"))
+	err := s.svc.RecordJobProgress(context.Background(), "job-1", "agent-a", "x")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to update job")
+}
+
 func (s *JobServiceSuite) TestCommitJobResultWrongAgent() {
 	job := resultJob(models.JobActionPlan)
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
@@ -633,6 +722,16 @@ func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultUpdatesProgressComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"feedback_comment_id":99}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertComment(gomock.Any(), job.Repo, int(job.PRNumber), 99, gomock.Any()).Return(99, nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
 }
