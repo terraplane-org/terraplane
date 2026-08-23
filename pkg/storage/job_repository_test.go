@@ -327,6 +327,18 @@ func TestUpdateAndDelete(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestListByRepoPRAction(t *testing.T) {
+	repo := testJobRepo(t)
+	plan := createJob(t, repo, &models.Job{StackName: "a", PRNumber: 42, Action: models.JobActionPlan})
+	createJob(t, repo, &models.Job{StackName: "b", PRNumber: 42, Action: models.JobActionApply})
+	createJob(t, repo, &models.Job{StackName: "c", PRNumber: 7, Action: models.JobActionPlan})
+
+	got, err := repo.ListByRepoPRAction(context.Background(), "acme/infra", 42, models.JobActionPlan)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, plan.ID, got[0].ID)
+}
+
 func TestDeleteByRepoPRAndStacks(t *testing.T) {
 	repo := testJobRepo(t)
 	keep := createJob(t, repo, &models.Job{StackName: "keep", Dir: "stacks/keep"})

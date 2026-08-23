@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -152,6 +153,41 @@ func (s *ClientSuite) TestWriteCommentSuccess() {
 		_, _ = io.WriteString(w, `{"id":1}`)
 	})
 	require.NoError(s.T(), c.WriteComment(context.Background(), "acme/infra", 9, "hello pr"))
+}
+
+func (s *ClientSuite) TestSetCommitStatusSuccess() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), http.MethodPost, r.Method)
+		require.Equal(s.T(), "/repos/acme/infra/statuses/abc123", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(s.T(), err)
+		require.JSONEq(s.T(), `{"state":"pending","context":"terraplane/plan","description":"planning"}`, string(body))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":1}`)
+	})
+	require.NoError(s.T(), c.SetCommitStatus(context.Background(), "acme/infra", "abc123", "pending", "terraplane/plan", "planning"))
+}
+
+func (s *ClientSuite) TestSetCommitStatusTruncatesDescription() {
+	long := strings.Repeat("x", 200)
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		require.NoError(s.T(), json.NewDecoder(r.Body).Decode(&payload))
+		require.Len(s.T(), payload["description"], 140)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{}`)
+	})
+	require.NoError(s.T(), c.SetCommitStatus(context.Background(), "acme/infra", "abc123", "success", "terraplane/plan", long))
+}
+
+func (s *ClientSuite) TestSetCommitStatusNonCreated() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"message":"nope"}`)
+	})
+	err := c.SetCommitStatus(context.Background(), "acme/infra", "abc123", "success", "terraplane/plan", "ok")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "unexpected status")
 }
 
 func (s *ClientSuite) TestReactToCommentSuccess() {

@@ -21,6 +21,7 @@ type Client interface {
 	GetFile(ctx context.Context, repo string, path string, revision string) (string, error)
 	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
 	ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error
+	SetCommitStatus(ctx context.Context, repo, sha, state, contextName, description string) error
 }
 
 type client struct {
@@ -162,6 +163,39 @@ func (c *client) WriteComment(ctx context.Context, repo string, prNumber int, bo
 	if res.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("GitHub API request to write comment to repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
+}
+
+func (c *client) SetCommitStatus(ctx context.Context, repo, sha, state, contextName, description string) error {
+	if len(description) > 140 {
+		description = description[:140]
+	}
+	u := fmt.Sprintf("%s/repos/%s/statuses/%s", c.apiURL, repo, sha)
+	payloadBytes, err := json.Marshal(map[string]string{
+		"state":       state,
+		"context":     contextName,
+		"description": description,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal commit status payload for repository %s sha %s: %w", repo, sha, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute GitHub API request to set commit status for repository %s sha %s: %w", repo, sha, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("GitHub API request to set commit status for repository %s sha %s returned unexpected status %s: %s", repo, sha, res.Status, strings.TrimSpace(string(respBody)))
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil

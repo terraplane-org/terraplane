@@ -91,6 +91,26 @@ func (s *JobServiceSuite) expectLockCreate(stack, dir string, err error) {
 	)
 }
 
+func (s *JobServiceSuite) expectPlanChecks(jobs ...*models.Job) {
+	s.T().Helper()
+	for range jobs {
+		s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(nil)
+	}
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return(jobs, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(nil)
+}
+
+func pendingPlanJob(stack string) *models.Job {
+	return &models.Job{
+		Repo:      "acme/infra",
+		PRNumber:  42,
+		StackName: stack,
+		CommitSHA: "abc123",
+		Action:    models.JobActionPlan,
+		Status:    models.JobStatusPending,
+	}
+}
+
 func (s *JobServiceSuite) TestIgnoresUnknownCommands() {
 	err := s.svc.CreatePendingJobs(context.Background(), webhook("not a terraplane command"))
 	require.NoError(s.T(), err)
@@ -128,6 +148,7 @@ func (s *JobServiceSuite) TestPlanUpsertsAllStacks() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
 	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
 	s.expectUpsert("b", "stacks/b", "plan", "agent-b", "job-b")
+	s.expectPlanChecks(pendingPlanJob("a"), pendingPlanJob("b"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -137,6 +158,7 @@ func (s *JobServiceSuite) TestPlanNamedStack() {
 	wh := webhook("terraplane plan -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
 	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
+	s.expectPlanChecks(pendingPlanJob("a"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -147,6 +169,7 @@ func (s *JobServiceSuite) TestPlanEnvironmentFlag() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoEnvYAML, nil)
 	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
 	s.expectUpsert("b", "stacks/b", "plan", "agent-b", "job-b")
+	s.expectPlanChecks(pendingPlanJob("a"), pendingPlanJob("b"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -171,6 +194,7 @@ func (s *JobServiceSuite) TestPlanPersistsPlanFlags() {
 		},
 		"agent-a",
 	).Return(&models.Job{ID: "job-a"}, nil)
+	s.expectPlanChecks(pendingPlanJob("a"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -203,6 +227,7 @@ environments:
 		},
 		"agent-a",
 	).Return(&models.Job{ID: "job-a"}, nil)
+	s.expectPlanChecks(pendingPlanJob("a"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -609,6 +634,7 @@ func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
 		},
 	)
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.expectPlanChecks(job)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
 }
@@ -624,6 +650,7 @@ func (s *JobServiceSuite) TestCommitJobResultPlanFailure() {
 		},
 	)
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.expectPlanChecks(job)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "boom"))
 }
@@ -633,6 +660,53 @@ func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+	s.expectPlanChecks(job)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanSkipsChecksWithoutSHA() {
+	job := resultJob(models.JobActionPlan)
+	job.CommitSHA = ""
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanCheckFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(errors.New("status api"))
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return([]*models.Job{job}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(errors.New("rollup"))
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanRollupListFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(nil)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return(nil, errors.New("db"))
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPlanRollupSkipsWhenNoMatchingSHA() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(nil)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return([]*models.Job{
+		{StackName: "a", CommitSHA: "other", Action: models.JobActionPlan},
+	}, nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
 }

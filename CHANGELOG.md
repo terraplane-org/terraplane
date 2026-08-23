@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Stack `tool_version` in `terraplane.yaml`
 - `SCM_PROVIDER` ENV var to configure the chosen SCM provider at runtime
+- GitHub commit statuses for plans: per-stack `terraplane/plan: <stack>` plus combined `terraplane/plan` (latest plan per stack for the PR head SHA)
+
 
 ### Changed
 

@@ -28,6 +28,14 @@ func (p *publisher) WriteComment(ctx context.Context, repo string, prNumber int,
 	return nil
 }
 
+func (p *publisher) UpsertCheck(ctx context.Context, check scm.Check) error {
+	if err := p.client.SetCommitStatus(ctx, check.Repo, check.SHA, string(check.State), check.Key, check.Description); err != nil {
+		p.logger.Error("Failed to set commit status", "repo", check.Repo, "sha", check.SHA, "key", check.Key, "error", err)
+		return err
+	}
+	return nil
+}
+
 func (p *publisher) Name() string {
 	return "github"
 }

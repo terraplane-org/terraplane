@@ -87,6 +87,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 	}
 
+	publishedPlan := false
 	for _, stack := range resolvedStacks {
 		if action == string(models.JobActionApply) {
 			ok, err := j.acquireApplyLock(ctx, webhook, stack)
@@ -130,6 +131,27 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			"agent", stack.Agent,
 			"job_id", job.ID,
 		)
+
+		if action == string(models.JobActionPlan) {
+			if job.Repo == "" {
+				job.Repo = webhook.RepositorySlug
+			}
+			if job.CommitSHA == "" {
+				job.CommitSHA = webhook.CommitSHA
+			}
+			if job.StackName == "" {
+				job.StackName = stack.Name
+			}
+			if job.Status == "" {
+				job.Status = models.JobStatusPending
+			}
+			j.publishPlanCheck(ctx, job)
+			publishedPlan = true
+		}
+	}
+
+	if publishedPlan {
+		j.refreshPlanRollup(ctx, webhook.RepositorySlug, webhook.PRNumber, webhook.CommitSHA)
 	}
 
 	return nil
@@ -315,7 +337,59 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 			"error", err,
 		)
 	}
+
+	if job.Action == models.JobActionPlan {
+		j.publishPlanCheck(ctx, job)
+		j.refreshPlanRollup(ctx, job.Repo, int(job.PRNumber), job.CommitSHA)
+	}
 	return nil
+}
+
+func (j *jobService) publishPlanCheck(ctx context.Context, job *models.Job) {
+	if job.CommitSHA == "" {
+		return
+	}
+	err := j.scmPublisher.UpsertCheck(ctx, scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       planCheckState(job),
+		Description: planCheckDescription(job),
+	})
+	if err != nil {
+		j.logger.Error(
+			"Failed to publish plan check",
+			"job_id", job.ID,
+			"repo", job.Repo,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+}
+
+func (j *jobService) refreshPlanRollup(ctx context.Context, repo string, prNumber int, sha string) {
+	if sha == "" {
+		return
+	}
+	jobs, err := j.jobRepository.ListByRepoPRAction(ctx, repo, prNumber, models.JobActionPlan)
+	if err != nil {
+		j.logger.Error("Failed to list plan jobs for check rollup", "repo", repo, "pr", prNumber, "error", err)
+		return
+	}
+	latest := latestPlanJobsForSHA(jobs, sha)
+	if len(latest) == 0 {
+		return
+	}
+	state, desc := planRollup(latest)
+	if err := j.scmPublisher.UpsertCheck(ctx, scm.Check{
+		Repo:        repo,
+		SHA:         sha,
+		Key:         scm.PlanRollupCheckKey(),
+		State:       state,
+		Description: desc,
+	}); err != nil {
+		j.logger.Error("Failed to publish plan rollup check", "repo", repo, "pr", prNumber, "error", err)
+	}
 }
 
 func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {

@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	scm "github.com/xyzjace/terraplane/pkg/scm"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -66,6 +67,20 @@ func (m *MockPublisher) Name() string {
 func (mr *MockPublisherMockRecorder) Name() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockPublisher)(nil).Name))
+}
+
+// UpsertCheck mocks base method.
+func (m *MockPublisher) UpsertCheck(ctx context.Context, check scm.Check) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertCheck", ctx, check)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertCheck indicates an expected call of UpsertCheck.
+func (mr *MockPublisherMockRecorder) UpsertCheck(ctx, check any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertCheck", reflect.TypeOf((*MockPublisher)(nil).UpsertCheck), ctx, check)
 }
 
 // WriteComment mocks base method.

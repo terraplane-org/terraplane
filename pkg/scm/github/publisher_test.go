@@ -9,6 +9,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/github/mock_github"
 )
 
@@ -35,6 +36,38 @@ func TestPublisherWriteCommentPropagatesError(t *testing.T) {
 
 	pub := NewPublisher(log.Noop(), client)
 	err := pub.WriteComment(context.Background(), "acme/infra", 3, "hi")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "api down")
+}
+
+func TestPublisherUpsertCheckSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().SetCommitStatus(gomock.Any(), "acme/infra", "abc123", "pending", "terraplane/plan: a", "planning").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	require.NoError(t, pub.UpsertCheck(context.Background(), scm.Check{
+		Repo:        "acme/infra",
+		SHA:         "abc123",
+		Key:         scm.PlanStackCheckKey("a"),
+		State:       scm.CheckPending,
+		Description: "planning",
+	}))
+}
+
+func TestPublisherUpsertCheckPropagatesError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().SetCommitStatus(gomock.Any(), "acme/infra", "abc123", "success", "terraplane/plan", "1/1 plans succeeded").Return(errors.New("api down"))
+
+	pub := NewPublisher(log.Noop(), client)
+	err := pub.UpsertCheck(context.Background(), scm.Check{
+		Repo:        "acme/infra",
+		SHA:         "abc123",
+		Key:         scm.PlanRollupCheckKey(),
+		State:       scm.CheckSuccess,
+		Description: "1/1 plans succeeded",
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "api down")
 }

@@ -130,6 +130,21 @@ func (mr *MockJobRepositoryMockRecorder) Get(ctx, jobID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockJobRepository)(nil).Get), ctx, jobID)
 }
 
+// ListByRepoPRAction mocks base method.
+func (m *MockJobRepository) ListByRepoPRAction(ctx context.Context, repo string, prNumber int, action models.JobAction) ([]*models.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByRepoPRAction", ctx, repo, prNumber, action)
+	ret0, _ := ret[0].([]*models.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByRepoPRAction indicates an expected call of ListByRepoPRAction.
+func (mr *MockJobRepositoryMockRecorder) ListByRepoPRAction(ctx, repo, prNumber, action any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByRepoPRAction", reflect.TypeOf((*MockJobRepository)(nil).ListByRepoPRAction), ctx, repo, prNumber, action)
+}
+
 // ReapExpiredClaims mocks base method.
 func (m *MockJobRepository) ReapExpiredClaims(ctx context.Context, now time.Time) (*repository.ReapExpiredClaimsResult, error) {
 	m.ctrl.T.Helper()

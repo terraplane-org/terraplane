@@ -231,6 +231,17 @@ func (r *jobRepository) RefreshAgentClaims(ctx context.Context, agentID string, 
 		Update("lease_expires_at", leaseExpiresAt).Error
 }
 
+func (r *jobRepository) ListByRepoPRAction(ctx context.Context, repo string, prNumber int, action models.JobAction) ([]*models.Job, error) {
+	var jobs []*models.Job
+	err := r.db.pool.WithContext(ctx).
+		Where("repo = ? AND pr_number = ? AND action = ?", repo, prNumber, action).
+		Find(&jobs).Error
+	if err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }

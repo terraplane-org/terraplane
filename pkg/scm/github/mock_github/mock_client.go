@@ -84,6 +84,20 @@ func (mr *MockClientMockRecorder) ReactToComment(ctx, repo, commentID, reaction 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReactToComment", reflect.TypeOf((*MockClient)(nil).ReactToComment), ctx, repo, commentID, reaction)
 }
 
+// SetCommitStatus mocks base method.
+func (m *MockClient) SetCommitStatus(ctx context.Context, repo, sha, state, contextName, description string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCommitStatus", ctx, repo, sha, state, contextName, description)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetCommitStatus indicates an expected call of SetCommitStatus.
+func (mr *MockClientMockRecorder) SetCommitStatus(ctx, repo, sha, state, contextName, description any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCommitStatus", reflect.TypeOf((*MockClient)(nil).SetCommitStatus), ctx, repo, sha, state, contextName, description)
+}
+
 // WriteComment mocks base method.
 func (m *MockClient) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
 	m.ctrl.T.Helper()
