@@ -18,19 +18,19 @@ type Environment struct {
 }
 
 type Stack struct {
-	Name             string `yaml:"name"`
-	Agent            string `yaml:"agent,omitempty"`
-	Dir              string `yaml:"dir"`
-	TerraformVersion string `yaml:"terraform_version,omitempty"`
+	Name        string `yaml:"name"`
+	Agent       string `yaml:"agent,omitempty"`
+	Dir         string `yaml:"dir"`
+	ToolVersion string `yaml:"tool_version,omitempty"`
 }
 
 // ResolvedStack is a stack with environment inheritance applied (agent, etc.).
 type ResolvedStack struct {
-	Environment      string
-	Name             string
-	Agent            string
-	Dir              string
-	TerraformVersion string
+	Environment string
+	Name        string
+	Agent       string
+	Dir         string
+	ToolVersion string
 }
 
 func ParseConfigFile(data []byte) (*ConfigFile, error) {
@@ -102,11 +102,11 @@ func (c *ConfigFile) allResolved() []ResolvedStack {
 				agent = strings.TrimSpace(env.Agent)
 			}
 			out = append(out, ResolvedStack{
-				Environment:      strings.TrimSpace(env.Name),
-				Name:             strings.TrimSpace(stack.Name),
-				Agent:            agent,
-				Dir:              strings.TrimSpace(stack.Dir),
-				TerraformVersion: strings.TrimSpace(stack.TerraformVersion),
+				Environment: strings.TrimSpace(env.Name),
+				Name:        strings.TrimSpace(stack.Name),
+				Agent:       agent,
+				Dir:         strings.TrimSpace(stack.Dir),
+				ToolVersion: strings.TrimSpace(stack.ToolVersion),
 			})
 		}
 	}

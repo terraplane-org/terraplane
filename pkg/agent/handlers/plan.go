@@ -49,7 +49,7 @@ func (h *Handlers) handlePlan(ctx context.Context, cmd *command.PlanCommand) {
 		}
 	}()
 
-	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.Stacks[0], cmd.PlanFlags)
+	output, err := h.terraformManager.RunPlan(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion, cmd.PlanFlags)
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform plan",

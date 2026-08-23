@@ -60,6 +60,7 @@ func (s *JobServiceSuite) expectUpsert(stack, dir, action, agent, jobID string) 
 		"commit_sha":   "abc123",
 		"stack_name":   stack,
 		"dir":          dir,
+		"tool_version": "",
 	}
 	if action == string(models.JobActionPlan) {
 		payload["plan_flags"] = ""
@@ -165,7 +166,40 @@ func (s *JobServiceSuite) TestPlanPersistsPlanFlags() {
 			"commit_sha":   "abc123",
 			"stack_name":   "a",
 			"dir":          "stacks/a",
+			"tool_version": "",
 			"plan_flags":   "-target=module.vpc",
+		},
+		"agent-a",
+	).Return(&models.Job{ID: "job-a"}, nil)
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.NoError(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestPlanPersistsToolVersion() {
+	wh := webhook("terraplane plan -s a")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(`
+environments:
+  - name: default
+    stacks:
+      - name: a
+        agent: agent-a
+        dir: stacks/a
+        tool_version: "1.9.0"
+`, nil)
+	s.jobs.EXPECT().UpsertPendingJob(
+		gomock.Any(),
+		"acme/infra",
+		42,
+		"a",
+		"plan",
+		map[string]interface{}{
+			"trigger_user": "jace",
+			"commit_sha":   "abc123",
+			"stack_name":   "a",
+			"dir":          "stacks/a",
+			"tool_version": "1.9.0",
+			"plan_flags":   "",
 		},
 		"agent-a",
 	).Return(&models.Job{ID: "job-a"}, nil)
@@ -320,7 +354,7 @@ func (s *JobServiceSuite) TestClaimPendingJobRepositoryError() {
 }
 
 func (s *JobServiceSuite) TestClaimPendingJobPlan() {
-	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x"}`), nil)
+	s.expectClaim(claimedJob(models.JobActionPlan, `{"trigger_user":"jace","plan_flags":"-target=x","tool_version":"1.9.0"}`), nil)
 
 	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
@@ -332,6 +366,7 @@ func (s *JobServiceSuite) TestClaimPendingJobPlan() {
 	require.Equal(s.T(), "agent-a", cmd.Plan.Agent)
 	require.Equal(s.T(), "job-1", cmd.Plan.JobID)
 	require.Equal(s.T(), "stacks/a", cmd.Plan.Dir)
+	require.Equal(s.T(), "1.9.0", cmd.Plan.ToolVersion)
 	require.Equal(s.T(), []string{"a"}, cmd.Plan.Stacks)
 	require.Equal(s.T(), "-target=x", cmd.Plan.PlanFlags)
 }

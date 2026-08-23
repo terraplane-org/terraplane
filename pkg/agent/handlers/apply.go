@@ -46,7 +46,7 @@ func (h *Handlers) handleApply(ctx context.Context, cmd *command.ApplyCommand) {
 		}
 	}()
 
-	output, err := h.terraformManager.RunApply(ctx, workspaceDir, cmd.Stacks[0])
+	output, err := h.terraformManager.RunApply(ctx, workspaceDir, cmd.Stacks[0], cmd.ToolVersion)
 	if err != nil {
 		h.logger.Error(
 			"Failed to run terraform apply",

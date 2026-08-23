@@ -14,7 +14,7 @@ environments:
     stacks:
       - name: a
         dir: stacks/a
-        terraform_version: "1.9.0"
+        tool_version: "1.9.0"
       - name: b
         agent: agent-special
         dir: stacks/b
@@ -33,7 +33,7 @@ func TestParseConfigFile(t *testing.T) {
 		require.Equal(t, "staging", cfg.Environments[0].Name)
 		require.Equal(t, "agent-dev", cfg.Environments[0].Agent)
 		require.Equal(t, "a", cfg.Environments[0].Stacks[0].Name)
-		require.Equal(t, "1.9.0", cfg.Environments[0].Stacks[0].TerraformVersion)
+		require.Equal(t, "1.9.0", cfg.Environments[0].Stacks[0].ToolVersion)
 		require.Equal(t, "agent-special", cfg.Environments[0].Stacks[1].Agent)
 	})
 
@@ -168,6 +168,8 @@ func TestResolveStacks(t *testing.T) {
 		require.Equal(t, "staging", got[0].Environment)
 		require.Equal(t, "agent-special", got[1].Agent)
 		require.Equal(t, "agent-prod", got[2].Agent)
+		require.Equal(t, "1.9.0", got[0].ToolVersion)
+		require.Empty(t, got[1].ToolVersion)
 	})
 
 	t.Run("by environment", func(t *testing.T) {
