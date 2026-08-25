@@ -278,11 +278,8 @@ func (s *JobServiceSuite) TestApplyLockGetFailure() {
 	require.Contains(s.T(), err.Error(), "failed to fetch lock")
 }
 
-func (s *JobServiceSuite) TestUnlockUpsertsPendingJobs() {
+func (s *JobServiceSuite) TestUnlockDoesNotEnqueueJobs() {
 	wh := webhook("terraplane unlock -s a")
-	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
-	s.expectUpsert("a", "stacks/a", "unlock", "agent-a", "job-a")
-
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
 }
@@ -329,18 +326,15 @@ func (s *JobServiceSuite) requireLeaseAboutOneMinute(lease *time.Time, from time
 }
 
 func (s *JobServiceSuite) TestClaimPendingJobEmptyAgent() {
-	before := time.Now()
-	s.jobs.EXPECT().ClaimPendingJobForAgent(
-		gomock.Any(),
-		"",
-		models.JobStatusClaimed,
-		gomock.Any(),
-	).DoAndReturn(func(_ context.Context, _ string, _ models.JobStatus, lease *time.Time) (*models.Job, error) {
-		s.requireLeaseAboutOneMinute(lease, before)
-		return nil, nil
-	})
-
 	cmd, err := s.svc.ClaimPendingJob(context.Background(), "")
+	require.ErrorIs(s.T(), err, services.ErrEmptyAgentID)
+	require.Nil(s.T(), cmd)
+}
+
+func (s *JobServiceSuite) TestClaimPendingJobNone() {
+	s.expectClaim(nil, nil)
+
+	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.NoError(s.T(), err)
 	require.Nil(s.T(), cmd)
 }
@@ -380,16 +374,6 @@ func (s *JobServiceSuite) TestClaimPendingJobApply() {
 	require.Equal(s.T(), "agent-a", cmd.Apply.Agent)
 	require.Equal(s.T(), "stacks/a", cmd.Apply.Dir)
 	require.Equal(s.T(), []string{"a"}, cmd.Apply.Stacks)
-}
-
-func (s *JobServiceSuite) TestClaimPendingJobUnlock() {
-	s.expectClaim(claimedJob(models.JobActionUnlock, `{"trigger_user":"jace"}`), nil)
-
-	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
-	require.NoError(s.T(), err)
-	require.Equal(s.T(), command.KindUnlock, cmd.Kind)
-	require.Equal(s.T(), "agent-a", cmd.Unlock.Agent)
-	require.Equal(s.T(), "stacks/a", cmd.Unlock.Dir)
 }
 
 func (s *JobServiceSuite) TestClaimPendingJobEmptyPayload() {

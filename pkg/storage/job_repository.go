@@ -116,21 +116,20 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 }
 
 func (r *jobRepository) ClaimPendingJobForAgent(ctx context.Context, agentID string, status models.JobStatus, leaseExpiresAt *time.Time) (*models.Job, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("agentID is required")
+	}
+
 	var jobs []*models.Job
 	err := r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("status = ?", models.JobStatusPending)
-		if agentID == "" {
-			// Unlock is DB-only; claim it even when no agent websocket is local.
-			q = q.Where("action = ?", models.JobActionUnlock)
-		} else {
-			q = q.Where(
+			Where("status = ?", models.JobStatusPending).
+			Where(
 				"action IN ? AND agent_id = ? AND NOT EXISTS (SELECT 1 FROM jobs AS busy WHERE busy.repo = jobs.repo AND busy.stack_name = jobs.stack_name AND busy.status IN ?)",
 				[]models.JobAction{models.JobActionPlan, models.JobActionApply},
 				agentID,
 				[]models.JobStatus{models.JobStatusClaimed, models.JobStatusRunning},
 			)
-		}
 
 		result := q.Order("created_at ASC, id ASC").Limit(1).Find(&jobs)
 		if result.Error != nil {

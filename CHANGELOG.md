@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Comment parsing now prevents invalid positional arguments
+- Comment long flags are `--stack` / `--env` (short `-s` / `-e` unchanged); single-dash `-stack` / `-env` are ignored
+- Terraform plan flags in comments must come after `--` (for example `terraplane plan -s app -- -target=module.x`)
+- `terraplane unlock` requires at least one `-s` / `--stack` or `-e` / `--env` (plain `terraplane unlock` is ignored); the orchestrator drops Terraplane apply locks and jobs for the resolved stacks and does not send work to agents
 
 ## [0.3.0] - 2026-08-19
 

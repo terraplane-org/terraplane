@@ -17,6 +17,7 @@ import (
 	"github.com/xyzjace/terraplane/config"
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
 	"github.com/xyzjace/terraplane/pkg/webserver"
@@ -49,7 +50,10 @@ func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) er
 	return s.err
 }
 
-func (s *stubJobs) ClaimPendingJob(context.Context, string) (*command.Command, error) {
+func (s *stubJobs) ClaimPendingJob(_ context.Context, agentID string) (*command.Command, error) {
+	if agentID == "" {
+		return nil, services.ErrEmptyAgentID
+	}
 	return s.claimCmd, s.claimErr
 }
 func (s *stubJobs) ReleaseClaim(context.Context, string) error { return nil }
@@ -72,12 +76,23 @@ func (s *stubJobs) CommitJobResult(_ context.Context, jobID, agentID, result, ou
 	return s.commitErr
 }
 
+type stubUnlock struct {
+	err error
+	ran []command.UnlockCommand
+}
+
+func (s *stubUnlock) RunUnlock(_ context.Context, unlock command.UnlockCommand) error {
+	s.ran = append(s.ran, unlock)
+	return s.err
+}
+
 type HandlerSuite struct {
 	suite.Suite
 	ctrl      *gomock.Controller
 	scm       *mock_scm.MockProvider
 	publisher *mock_scm.MockPublisher
 	jobs      *stubJobs
+	unlocks   *stubUnlock
 	handler   http.Handler
 }
 
@@ -90,6 +105,7 @@ func (s *HandlerSuite) SetupTest() {
 	s.scm = mock_scm.NewMockProvider(s.ctrl)
 	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.jobs = &stubJobs{called: make(chan *scm.Webhook, 8)}
+	s.unlocks = &stubUnlock{}
 	s.handler = s.newHandler()
 }
 
@@ -99,6 +115,7 @@ func (s *HandlerSuite) newHandler() http.Handler {
 		s.scm,
 		s.publisher,
 		s.jobs,
+		s.unlocks,
 		&config.Config{SharedAuthToken: "secret"},
 	)
 }
@@ -172,7 +189,7 @@ func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 	s.handler.ServeHTTP(rec, req)
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 
-	for _, want := range []string{"terraplane plan -s a", "terraplane apply -s a", "terraplane unlock -s a"} {
+	for _, want := range []string{"terraplane plan -s a", "terraplane apply -s a"} {
 		select {
 		case got := <-s.jobs.called:
 			require.Equal(s.T(), want, got.FullCommand)
@@ -180,6 +197,8 @@ func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 			s.T().Fatalf("timed out waiting for CreatePendingJobs (%s)", want)
 		}
 	}
+	require.Len(s.T(), s.unlocks.ran, 1)
+	require.Equal(s.T(), []string{"a"}, s.unlocks.ran[0].Stacks)
 }
 
 func (s *HandlerSuite) TestWebhookServiceErrorsAreLoggedNotReturned() {
@@ -263,6 +282,15 @@ func (s *HandlerSuite) TestAgentRoutesAcceptBearerToken() {
 		require.Equal(s.T(), http.StatusNoContent, rec.Code, path)
 		require.Empty(s.T(), rec.Body.String(), path)
 	}
+}
+
+func (s *HandlerSuite) TestAgentClaimEmptyAgentID() {
+	req := httptest.NewRequest(http.MethodPost, "/agent/jobs/claim", strings.NewReader(`{"agent_id":""}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusBadRequest, rec.Code)
+	require.Contains(s.T(), rec.Body.String(), "agent_id is required")
 }
 
 func (s *HandlerSuite) TestAgentClaimNoJob() {
@@ -410,6 +438,25 @@ func TestServerStartShutdown(t *testing.T) {
 	}
 
 	require.NoError(t, srv.Shutdown(context.Background()))
+}
+
+func (s *HandlerSuite) TestWebhookUnlockServiceErrorIsLoggedNotReturned() {
+	s.unlocks.err = errors.New("unlock failed")
+	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{{
+		RepositorySlug: "acme/infra",
+		PRNumber:       1,
+		FullCommand:    "terraplane unlock -s a",
+		TriggeringUser: "jace",
+		CommitSHA:      "abc",
+		CommentID:      13,
+	}}, nil)
+	s.publisher.EXPECT().AcknowledgeComment(gomock.Any(), "acme/infra", 1, 13).Return(nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+	require.Len(s.T(), s.unlocks.ran, 1)
 }
 
 func TestServerStartListenError(t *testing.T) {

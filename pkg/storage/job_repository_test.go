@@ -156,22 +156,14 @@ func TestClaimPendingJobForAgentSetsLease(t *testing.T) {
 	require.Equal(t, lease, got.LeaseExpiresAt.UTC())
 }
 
-func TestClaimPendingJobForAgentEmptyIDClaimsUnlockOnly(t *testing.T) {
+func TestClaimPendingJobForAgentEmptyIDErrors(t *testing.T) {
 	repo := testJobRepo(t)
-	plan := createJob(t, repo, &models.Job{Status: models.JobStatusPending, Action: models.JobActionPlan})
-	unlock := createJob(t, repo, &models.Job{
-		ID: uuid.NewString(), StackName: "b", Dir: "stacks/b", AgentID: "agent-b",
-		Status: models.JobStatusPending, Action: models.JobActionUnlock,
-	})
+	createJob(t, repo, &models.Job{Status: models.JobStatusPending, Action: models.JobActionPlan})
 	lease := time.Now().Add(time.Minute)
 
 	job, err := repo.ClaimPendingJobForAgent(context.Background(), "", models.JobStatusClaimed, &lease)
-	require.NoError(t, err)
-	require.NotNil(t, job)
-	require.Equal(t, unlock.ID, job.ID)
-	require.Equal(t, models.JobActionUnlock, job.Action)
-
-	require.Equal(t, models.JobStatusPending, getJob(t, repo, plan.ID).Status)
+	require.Error(t, err)
+	require.Nil(t, job)
 }
 
 func TestClaimPendingJobForAgentSkipsBusyStack(t *testing.T) {

@@ -51,6 +51,12 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 		"environments", unlock.Environments,
 	)
 
+	if len(unlock.Stacks) == 0 && len(unlock.Environments) == 0 {
+		err := fmt.Errorf("unlock requires at least one stack (-s) or environment (-e)")
+		s.publishUnlockFailure(ctx, unlock, "", err)
+		return err
+	}
+
 	file, err := s.scmProvider.GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo)
 	if err != nil {
 		err = fmt.Errorf("failed to fetch terraplane.yaml for repository %s at commit %s: %w", unlock.Repo, unlock.CommitSHA, err)

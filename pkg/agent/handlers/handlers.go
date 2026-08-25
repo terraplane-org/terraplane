@@ -43,8 +43,6 @@ func (h *Handlers) Dispatch(ctx context.Context, cmd *command.Command, done chan
 			h.handlePlan(ctx, &cmd.Plan)
 		case command.KindApply:
 			h.handleApply(ctx, &cmd.Apply)
-		case command.KindUnlock:
-			h.handleUnlock(ctx, &cmd.Unlock)
 		default:
 			h.logger.Warn("Received unsupported command kind", "kind", cmd.Kind)
 		}
