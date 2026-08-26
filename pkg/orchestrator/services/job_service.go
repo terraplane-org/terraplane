@@ -70,6 +70,10 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return nil
 	}
 
+	if cmd.Kind == command.KindUnlock {
+		return nil
+	}
+
 	file, err := j.scmProvider.GetFile("terraplane.yaml", webhook.CommitSHA, webhook.RepositorySlug)
 	if err != nil {
 		return fmt.Errorf("failed to fetch terraplane.yaml for repository %s at commit %s: %w", webhook.RepositorySlug, webhook.CommitSHA, err)
@@ -178,6 +182,9 @@ func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook,
 }
 
 func (j *jobService) ClaimPendingJob(ctx context.Context, agentID string) (*command.Command, error) {
+	if agentID == "" {
+		return nil, ErrEmptyAgentID
+	}
 	expires := time.Now().Add(j.jobLease)
 	job, err := j.jobRepository.ClaimPendingJobForAgent(ctx, agentID, models.JobStatusClaimed, &expires)
 	if err != nil {
@@ -362,17 +369,6 @@ func (j *jobService) commandFromJob(job *models.Job) (command.Command, error) {
 		apply.Dir = job.Dir
 		apply.ToolVersion = toolVersion
 		return command.Command{Kind: command.KindApply, Apply: apply}, nil
-	case models.JobActionUnlock:
-		unlock := command.UnlockCommand{Stacks: stacks}
-		unlock.Repo = job.Repo
-		unlock.PRNumber = int(job.PRNumber)
-		unlock.CommitSHA = job.CommitSHA
-		unlock.TriggerUser = triggerUser
-		unlock.Agent = job.AgentID
-		unlock.JobID = job.ID
-		unlock.Dir = job.Dir
-		unlock.ToolVersion = toolVersion
-		return command.Command{Kind: command.KindUnlock, Unlock: unlock}, nil
 	default:
 		return command.Command{}, fmt.Errorf("unknown job action: %s", job.Action)
 	}
@@ -415,11 +411,6 @@ func (j *jobService) resolveStacksAndEnvironments(cmd *command.Command) ([]strin
 		stacks = cmd.Apply.Stacks
 		environments = cmd.Apply.Environments
 		action = string(models.JobActionApply)
-	}
-	if cmd.Kind == command.KindUnlock {
-		stacks = cmd.Unlock.Stacks
-		environments = cmd.Unlock.Environments
-		action = string(models.JobActionUnlock)
 	}
 	return stacks, environments, action
 }

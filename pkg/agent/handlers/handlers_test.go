@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
@@ -220,26 +219,16 @@ func (s *HandlersSuite) TestHandleApplySuccessSubmitFailureStillRemovesWorkspace
 
 // --- Unlock ---
 
-func (s *HandlersSuite) TestHandleUnlockSubmitsStubSuccess() {
+func (s *HandlersSuite) TestDispatchUnlockIsIgnored() {
 	h := s.newHandlers()
-	s.oc.EXPECT().SubmitResult(gomock.Any(), "job-1", "agent-test", true, gomock.Any(), "").DoAndReturn(
-		func(_ context.Context, _, _ string, _ bool, output, _ string) error {
-			require.Contains(s.T(), output, "stub unlock")
-			require.Contains(s.T(), output, "acme/infra")
-			return nil
-		})
-
-	h.handleUnlock(context.Background(), unlockCmd())
+	done := make(chan struct{})
+	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnlock, Unlock: *unlockCmd()}, done)
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		s.T().Fatal("timed out waiting for dispatch goroutine")
+	}
 }
-
-func (s *HandlersSuite) TestHandleUnlockSubmitFailureIsBestEffort() {
-	h := s.newHandlers()
-	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, gomock.Any(), "").Return(errors.New("submit failed"))
-
-	h.handleUnlock(context.Background(), unlockCmd())
-}
-
-// --- Dispatch ---
 
 func (s *HandlersSuite) TestDispatchUnknownKindIsIgnored() {
 	h := s.newHandlers()
@@ -285,19 +274,5 @@ func (s *HandlersSuite) TestDispatchApplyRunsHandler() {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		s.T().Fatal("timed out waiting for apply handler")
-	}
-}
-
-func (s *HandlersSuite) TestDispatchUnlockRunsHandler() {
-	done := make(chan struct{})
-	h := s.newHandlers()
-	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, gomock.Any(), "").Return(nil)
-
-	h.Dispatch(context.Background(), &command.Command{Kind: command.KindUnlock, Unlock: *unlockCmd()}, done)
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		s.T().Fatal("timed out waiting for unlock handler")
 	}
 }

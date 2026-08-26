@@ -18,7 +18,7 @@ func TestParseWebhook(t *testing.T) {
 
 	t.Run("plan", func(t *testing.T) {
 		w := *base
-		w.FullCommand = "terraplane plan -s stg-a -stack stg-b -s=stg-c -stack=stg-d -target=module.x"
+		w.FullCommand = "terraplane plan -s stg-a --stack stg-b -s=stg-c --stack=stg-d -- -target=module.x"
 		cmd := command.ParseWebhook(&w)
 		require.Equal(t, command.KindPlan, cmd.Kind)
 		require.Equal(t, "org/repo", cmd.Plan.Repo)
@@ -33,7 +33,7 @@ func TestParseWebhook(t *testing.T) {
 
 	t.Run("plan with environment", func(t *testing.T) {
 		w := *base
-		w.FullCommand = "terraplane plan -e staging -env production -e=dev -env=qa -s stg-a"
+		w.FullCommand = "terraplane plan -e staging --env production -e=dev --env=qa -s stg-a"
 		cmd := command.ParseWebhook(&w)
 		require.Equal(t, command.KindPlan, cmd.Kind)
 		require.Equal(t, []string{"stg-a"}, cmd.Plan.Stacks)
@@ -70,10 +70,11 @@ func TestParseWebhook(t *testing.T) {
 
 	t.Run("unlock", func(t *testing.T) {
 		w := *base
-		w.FullCommand = "terraplane unlock -stack stg-a"
+		w.FullCommand = "terraplane unlock --stack stg-a -s stg-b -s=stg-c --stack=stg-d"
 		cmd := command.ParseWebhook(&w)
 		require.Equal(t, command.KindUnlock, cmd.Kind)
-		require.Equal(t, []string{"stg-a"}, cmd.Unlock.Stacks)
+		require.Equal(t, []string{"stg-a", "stg-b", "stg-c", "stg-d"}, cmd.Unlock.Stacks)
+		require.Empty(t, cmd.Unlock.Environments)
 	})
 
 	t.Run("unlock with environment", func(t *testing.T) {
@@ -85,6 +86,34 @@ func TestParseWebhook(t *testing.T) {
 		require.Equal(t, []string{"staging"}, cmd.Unlock.Environments)
 	})
 
+	t.Run("unlock with stacks and environments", func(t *testing.T) {
+		w := *base
+		w.FullCommand = "terraplane unlock -e staging --env production -e=dev --env=qa -s stg-a"
+		cmd := command.ParseWebhook(&w)
+		require.Equal(t, command.KindUnlock, cmd.Kind)
+		require.Equal(t, []string{"stg-a"}, cmd.Unlock.Stacks)
+		require.Equal(t, []string{"staging", "production", "dev", "qa"}, cmd.Unlock.Environments)
+	})
+
+	t.Run("unlock requires a stack or environment", func(t *testing.T) {
+		for _, body := range []string{
+			"terraplane unlock",
+			"terraplane unlock -s",
+			"terraplane unlock -e",
+			"terraplane unlock -s=",
+			"terraplane unlock --stack=",
+			"terraplane unlock -e=",
+			"terraplane unlock --env=",
+			"terraplane unlock --stack",
+			"terraplane unlock -s -e",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+		}
+	})
+
 	t.Run("multiline uses first line", func(t *testing.T) {
 		w := *base
 		w.FullCommand = "terraplane plan -s stg-a\nmore commentary"
@@ -94,10 +123,16 @@ func TestParseWebhook(t *testing.T) {
 	})
 
 	t.Run("trailing stack flag without value", func(t *testing.T) {
-		w := *base
-		w.FullCommand = "terraplane plan -s"
-		cmd := command.ParseWebhook(&w)
-		require.Equal(t, command.KindUnknown, cmd.Kind)
+		for _, body := range []string{
+			"terraplane plan -s",
+			"terraplane plan -s=",
+			"terraplane plan --env=",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+		}
 	})
 
 	t.Run("rejects positional stack name", func(t *testing.T) {
@@ -105,6 +140,7 @@ func TestParseWebhook(t *testing.T) {
 			"terraplane plan stackname",
 			"terraplane apply stackname",
 			"terraplane unlock stackname",
+			"terraplane apply -s stg-a stackname",
 			"terraplane plan -s stg-a stackname",
 			"terraplane plan stackname -s stg-a",
 		} {
@@ -113,6 +149,47 @@ func TestParseWebhook(t *testing.T) {
 			cmd := command.ParseWebhook(&w)
 			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
 		}
+	})
+
+	t.Run("plan terraform flags", func(t *testing.T) {
+		cases := []struct {
+			body string
+			want string
+		}{
+			{"terraplane plan", ""},
+			{"terraplane plan -s stg-foundation", ""},
+			{"terraplane plan -e staging -s stg-foundation -- -target=module.vpc", "-target=module.vpc"},
+			{"terraplane plan -s stg-foundation -- -target=module.vpc -var-file=terraform.tfvars", "-target=module.vpc -var-file=terraform.tfvars"},
+		}
+		for _, tt := range cases {
+			w := *base
+			w.FullCommand = tt.body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindPlan, cmd.Kind, "body=%q", tt.body)
+			require.Equal(t, tt.want, cmd.Plan.PlanFlags, "body=%q", tt.body)
+		}
+	})
+
+	t.Run("rejects single-dash long flags", func(t *testing.T) {
+		for _, body := range []string{
+			"terraplane plan -stack stg-a",
+			"terraplane apply -env staging",
+			"terraplane apply -env=staging",
+			"terraplane unlock -stack=stg-a",
+			"terraplane unlock -env staging",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+		}
+	})
+
+	t.Run("rejects plan terraform flags without --", func(t *testing.T) {
+		w := *base
+		w.FullCommand = "terraplane plan -s stg-a -target=module.x"
+		cmd := command.ParseWebhook(&w)
+		require.Equal(t, command.KindUnknown, cmd.Kind)
 	})
 
 	t.Run("rejects apply and unlock terraform-style flags", func(t *testing.T) {

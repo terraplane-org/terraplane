@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/xyzjace/terraplane/config"
@@ -19,6 +20,7 @@ type handler struct {
 	mux             *http.ServeMux
 	sharedAuthToken string
 	jobService      services.JobService
+	unlockService   services.UnlockService
 }
 
 func NewHandler(
@@ -26,6 +28,7 @@ func NewHandler(
 	scmProvider scm.Provider,
 	scmPublisher scm.Publisher,
 	jobService services.JobService,
+	unlockService services.UnlockService,
 	config *config.Config,
 ) http.Handler {
 	h := &handler{
@@ -35,6 +38,7 @@ func NewHandler(
 		scmPublisher:    scmPublisher,
 		sharedAuthToken: config.SharedAuthToken,
 		jobService:      jobService,
+		unlockService:   unlockService,
 	}
 
 	h.mux.HandleFunc("GET /health", h.healthCheck)
@@ -86,7 +90,16 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
+		if cmd.Kind == command.KindUnlock {
+			if err := h.unlockService.RunUnlock(r.Context(), cmd.Unlock); err != nil {
+				h.logger.Error(
+					"Failed to unlock stacks from webhook",
+					"repo", webhook.RepositorySlug,
+					"pr", webhook.PRNumber,
+					"error", err,
+				)
+			}
+		} else if err := h.jobService.CreatePendingJobs(r.Context(), &webhook); err != nil {
 			h.logger.Error(
 				"Failed to create pending jobs from webhook",
 				"repo", webhook.RepositorySlug,
@@ -124,6 +137,10 @@ func (h *handler) agentJobClaimHandler(w http.ResponseWriter, r *http.Request) {
 
 	cmd, err := h.jobService.ClaimPendingJob(r.Context(), payload.AgentID)
 	if err != nil {
+		if errors.Is(err, services.ErrEmptyAgentID) {
+			writeResponse(w, http.StatusBadRequest, "agent_id is required")
+			return
+		}
 		h.logger.Error("Failed to claim pending job", "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to claim pending job")
 		return

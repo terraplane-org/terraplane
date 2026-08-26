@@ -35,6 +35,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		webserver.NewServer,
 		orchestrator.NewManager,
 		services.NewJobService,
+		services.NewUnlockService,
 		orchestrator.NewDispatcher,
 		wire.Bind(new(orchestrator.SchemaChecker), new(*storage.DB)),
 	)
