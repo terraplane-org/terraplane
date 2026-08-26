@@ -8,13 +8,11 @@ PR-driven Terraform automation with remote agents.
 
 ---
 
-# Still baking
+# Early alpha
 
-This repository is so WIP it hurts. Nothing in here is designed for public consumption, nor should it be relied on for anything other than interest. It's a project I've wanted to make for a long time, but I've yet to determine if I have the capacity to see it through.
+Terraplane works — you can run it, wire up agents, and drive plans/applies from PRs. It is still early. APIs and config can change, edges are rough, and there is no large community or long production track record behind it yet. Treat it as alpha software you can use, not as something with years of hardening.
 
 ---
-
-
 
 ## What it is
 
