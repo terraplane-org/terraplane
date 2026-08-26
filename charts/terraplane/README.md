@@ -4,6 +4,14 @@ PR-driven Terraform automation with remote agents.
 
 Agents usually run in a **different** network/cluster than the orchestrator (private infra vs public webhooks). Use two Helm releases of this chart, or disable the half you do not want.
 
+Copy-pasteable values live under **[examples/](examples/)**:
+
+| Example | Scenario |
+|---------|----------|
+| [orchestrator](examples/orchestrator/) | Orchestrator only (ingress + webhooks) |
+| [agent](examples/agent/) | Agents only (remote orchestrator URL) |
+| [combined](examples/combined/) | Orchestrator + agent in one release (lab / single cluster) |
+
 ## Install
 
 ### Orchestrator release
@@ -21,33 +29,12 @@ kubectl -n terraplane create secret generic terraplane-orchestrator \
 helm install terraplane-orch oci://ghcr.io/terraplane-org/charts/terraplane \
   --version 0.3.0 \
   -n terraplane \
-  -f orch-values.yaml
-```
-
-```yaml
-# orch-values.yaml
-# image.tag defaults to Chart.appVersion when omitted
-
-orchestrator:
-  enabled: true
-  envFrom:
-    - secretRef:
-        name: terraplane-orchestrator
-  ingress:
-    enabled: true
-    hosts:
-      - host: terraplane.example.com
-        paths:
-          - path: /
-            pathType: Prefix
-
-agents: []
+  -f examples/orchestrator/values.yaml
 ```
 
 ### Agents release (separate cluster/namespace)
 
 ```bash
-# Create the namespace first so secrets can be placed into it
 kubectl create namespace terraplane-agents
 
 kubectl -n terraplane-agents create secret generic terraplane-agent \
@@ -62,32 +49,12 @@ kubectl -n terraplane-agents create secret generic agent-prod-ssh \
 helm install terraplane-agents oci://ghcr.io/terraplane-org/charts/terraplane \
   --version 0.3.0 \
   -n terraplane-agents \
-  -f agents-values.yaml
+  -f examples/agent/values.yaml
 ```
 
-```yaml
-# agents-values.yaml
-namespaceOverride: terraplane-agents
+### Combined release (same cluster)
 
-orchestrator:
-  enabled: false
-
-agentDefaults:
-  orchestratorURL: https://terraplane.example.com
-  envFrom:
-    - secretRef:
-        name: terraplane-agent
-
-agents:
-  - name: agent-dev
-    sshKey:
-      secretName: agent-dev-ssh
-  - name: agent-prod
-    sshKey:
-      secretName: agent-prod-ssh
-    persistence:
-      size: 50Gi
-```
+See [examples/combined](examples/combined/). Use release name `terraplane` so agents can reach `http://terraplane-orchestrator:8080`.
 
 Cloud secret managers (AWS Secrets Manager, GCP Secret Manager, Vault, etc.) are **out of band**: sync into Kubernetes Secrets with External Secrets Operator / CSI / your own tooling, then reference those Secret names from values.
 

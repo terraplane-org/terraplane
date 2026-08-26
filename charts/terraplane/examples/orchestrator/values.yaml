@@ -1,0 +1,29 @@
+# Orchestrator-only release (public webhooks; agents elsewhere).
+#
+# Prerequisites:
+#   kubectl create namespace terraplane
+#   kubectl -n terraplane create secret generic terraplane-orchestrator \
+#     --from-literal=DATABASE_URL='postgres://user:pass@host:5432/terraplane?sslmode=require' \
+#     --from-literal=DATABASE_DRIVER=postgres \
+#     --from-literal=SHARED_AUTH_TOKEN='change-me' \
+#     --from-literal=ORCHESTRATOR_GITHUB_ACCESS_TOKEN='ghp_...' \
+#     --from-literal=ORCHESTRATOR_GITHUB_WEBHOOK_SECRET='...'
+#
+# Install:
+#   helm install terraplane-orch oci://ghcr.io/terraplane-org/charts/terraplane \
+#     --version 0.3.1 -n terraplane -f values.yaml
+
+orchestrator:
+  enabled: true
+  envFrom:
+    - secretRef:
+        name: terraplane-orchestrator
+  ingress:
+    enabled: true
+    hosts:
+      - host: terraplane.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+
+agents: []

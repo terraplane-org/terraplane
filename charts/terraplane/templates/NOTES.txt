@@ -7,6 +7,12 @@ Orchestrator service: {{ include "terraplane.fullname" . }}-orchestrator:{{ .Val
 {{- if .Values.agents }}
 
 Agents connect to: {{ .Values.agentDefaults.orchestratorURL }}
+{{- if not .Values.agentDefaults.orchestratorURL }}
+
+WARNING: agents is non-empty but agentDefaults.orchestratorURL is empty.
+Set it to an HTTP(S) base URL (e.g. https://terraplane.example.com or
+http://{{ include "terraplane.fullname" . }}-orchestrator:{{ .Values.orchestrator.service.port }} for in-cluster).
+{{- end }}
 {{- end }}
 
 Secrets are not created by this chart. Provide them as Kubernetes Secrets and
@@ -14,6 +20,7 @@ reference them via orchestrator.envFrom / agentDefaults.envFrom / agents[].envFr
 
 Typical pattern: install the orchestrator in a reachable cluster/network, then install
 agents as a separate release with orchestrator.enabled=false and
-agentDefaults.orchestratorURL pointing at the public WebSocket URL.
+agentDefaults.orchestratorURL pointing at the public HTTP(S) URL.
 
+Copy-pasteable values: charts/terraplane/examples/ (orchestrator, agent, combined).
 See charts/terraplane/README.md for values documentation.

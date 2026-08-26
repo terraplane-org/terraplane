@@ -38,7 +38,7 @@ helm install terraplane oci://ghcr.io/terraplane-org/charts/terraplane \
   -f my-values.yaml
 ```
 
-Chart values and split-install notes: `[charts/terraplane](charts/terraplane)`.
+Chart values, split-install notes, and examples: `[charts/terraplane](charts/terraplane)` · `[examples](charts/terraplane/examples)`.
 
 ## Acknowledgements
 

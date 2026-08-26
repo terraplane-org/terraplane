@@ -1,0 +1,37 @@
+# Agents-only release (private cluster/network; orchestrator elsewhere).
+#
+# Prerequisites:
+#   kubectl create namespace terraplane-agents
+#   kubectl -n terraplane-agents create secret generic terraplane-agent \
+#     --from-literal=SHARED_AUTH_TOKEN='change-me'
+#   kubectl -n terraplane-agents create secret generic agent-dev-ssh \
+#     --from-file=ssh-private-key=./id_ed25519_dev
+#   kubectl -n terraplane-agents create secret generic agent-prod-ssh \
+#     --from-file=ssh-private-key=./id_ed25519_prod
+#
+# SHARED_AUTH_TOKEN must match the orchestrator secret.
+#
+# Install:
+#   helm install terraplane-agents oci://ghcr.io/terraplane-org/charts/terraplane \
+#     --version 0.3.1 -n terraplane-agents -f values.yaml
+
+namespaceOverride: terraplane-agents
+
+orchestrator:
+  enabled: false
+
+agentDefaults:
+  orchestratorURL: https://terraplane.example.com
+  envFrom:
+    - secretRef:
+        name: terraplane-agent
+
+agents:
+  - name: agent-dev
+    sshKey:
+      secretName: agent-dev-ssh
+  - name: agent-prod
+    sshKey:
+      secretName: agent-prod-ssh
+    persistence:
+      size: 50Gi
