@@ -9,7 +9,6 @@
 
 # Build outputs and local tooling
 bin
-local_data
 
 # Test / coverage artifacts
 coverage.out

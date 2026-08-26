@@ -1,7 +1,5 @@
 .env
 bin/*
-local_data/*
-!local_data/.gitkeep
 
 # Test / coverage artifacts
 coverage.out
