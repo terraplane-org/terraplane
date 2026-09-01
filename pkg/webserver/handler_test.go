@@ -60,7 +60,8 @@ func (s *stubJobs) ReleaseClaim(context.Context, string) error { return nil }
 func (s *stubJobs) FailClaimedJob(context.Context, string, string) error {
 	return nil
 }
-func (s *stubJobs) ReapExpiredClaims(context.Context) error { return nil }
+func (s *stubJobs) ReapExpiredClaims(context.Context) error  { return nil }
+func (s *stubJobs) CleanupExpiredJobs(context.Context) error { return nil }
 func (s *stubJobs) RefreshAgentClaims(_ context.Context, agentID string) error {
 	s.refreshed = append(s.refreshed, agentID)
 	return s.refreshErr

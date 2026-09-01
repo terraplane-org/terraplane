@@ -41,7 +41,10 @@ func (s *JobServiceSuite) SetupTest() {
 	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
 	s.locks = mock_repository.NewMockLockRepository(s.ctrl)
-	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{OrchestratorJobLease: time.Minute})
+	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{
+		OrchestratorJobLease:           time.Minute,
+		OrchestratorJobCleanupInterval: 30 * 24 * time.Hour,
+	})
 }
 
 func webhook(comment string) *scm.Webhook {
@@ -491,6 +494,35 @@ func (s *JobServiceSuite) TestReapExpiredClaimsError() {
 	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(nil, errors.New("db"))
 	err := s.svc.ReapExpiredClaims(context.Background())
 	require.Error(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestCleanupExpiredJobsNone() {
+	s.jobs.EXPECT().CleanupExpiredJobs(gomock.Any(), gomock.Any()).Return(0, nil)
+	require.NoError(s.T(), s.svc.CleanupExpiredJobs(context.Background()))
+}
+
+func (s *JobServiceSuite) TestCleanupExpiredJobsSome() {
+	before := time.Now()
+	s.jobs.EXPECT().CleanupExpiredJobs(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, cutoff time.Time) (int, error) {
+			s.Require().True(cutoff.Before(before))
+			return 3, nil
+		},
+	)
+	require.NoError(s.T(), s.svc.CleanupExpiredJobs(context.Background()))
+}
+
+func (s *JobServiceSuite) TestCleanupExpiredJobsError() {
+	s.jobs.EXPECT().CleanupExpiredJobs(gomock.Any(), gomock.Any()).Return(0, errors.New("db"))
+	err := s.svc.CleanupExpiredJobs(context.Background())
+	require.Error(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestCleanupExpiredJobsDisabledWhenIntervalZero() {
+	svc := services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{
+		OrchestratorJobCleanupInterval: 0,
+	})
+	require.NoError(s.T(), svc.CleanupExpiredJobs(context.Background()))
 }
 
 func (s *JobServiceSuite) TestRefreshAgentClaims() {

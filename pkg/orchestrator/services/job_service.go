@@ -28,15 +28,17 @@ type JobService interface {
 	RefreshAgentClaims(ctx context.Context, agentID string) error
 	AckJob(ctx context.Context, jobID, agentID string) error
 	CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error
+	CleanupExpiredJobs(ctx context.Context) error
 }
 
 type jobService struct {
-	logger         log.Logger
-	jobRepository  repository.JobRepository
-	lockRepository repository.LockRepository
-	scmProvider    scm.Provider
-	scmPublisher   scm.Publisher
-	jobLease       time.Duration
+	logger             log.Logger
+	jobRepository      repository.JobRepository
+	lockRepository     repository.LockRepository
+	scmProvider        scm.Provider
+	scmPublisher       scm.Publisher
+	jobLease           time.Duration
+	jobCleanupInterval time.Duration
 }
 
 func NewJobService(
@@ -48,12 +50,13 @@ func NewJobService(
 	config *config.Config,
 ) JobService {
 	return &jobService{
-		logger:         logger,
-		jobRepository:  jobRepository,
-		lockRepository: lockRepository,
-		scmProvider:    scmProvider,
-		scmPublisher:   scmPublisher,
-		jobLease:       config.OrchestratorJobLease,
+		logger:             logger,
+		jobRepository:      jobRepository,
+		lockRepository:     lockRepository,
+		scmProvider:        scmProvider,
+		scmPublisher:       scmPublisher,
+		jobLease:           config.OrchestratorJobLease,
+		jobCleanupInterval: config.OrchestratorJobCleanupInterval,
 	}
 }
 
@@ -321,6 +324,21 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 			"stack", job.StackName,
 			"error", err,
 		)
+	}
+	return nil
+}
+
+func (j *jobService) CleanupExpiredJobs(ctx context.Context) error {
+	if j.jobCleanupInterval <= 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-j.jobCleanupInterval)
+	n, err := j.jobRepository.CleanupExpiredJobs(ctx, cutoff)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		j.logger.Debug("Cleaned up expired jobs", "count", n, "cutoff", cutoff)
 	}
 	return nil
 }

@@ -58,6 +58,21 @@ func (mr *MockJobRepositoryMockRecorder) ClaimPendingJobForAgent(ctx, agentID, s
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPendingJobForAgent", reflect.TypeOf((*MockJobRepository)(nil).ClaimPendingJobForAgent), ctx, agentID, status, leaseExpiresAt)
 }
 
+// CleanupExpiredJobs mocks base method.
+func (m *MockJobRepository) CleanupExpiredJobs(ctx context.Context, cutoff time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CleanupExpiredJobs", ctx, cutoff)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CleanupExpiredJobs indicates an expected call of CleanupExpiredJobs.
+func (mr *MockJobRepositoryMockRecorder) CleanupExpiredJobs(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupExpiredJobs", reflect.TypeOf((*MockJobRepository)(nil).CleanupExpiredJobs), ctx, cutoff)
+}
+
 // Create mocks base method.
 func (m *MockJobRepository) Create(ctx context.Context, job *models.Job) error {
 	m.ctrl.T.Helper()
