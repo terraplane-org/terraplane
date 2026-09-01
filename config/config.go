@@ -18,6 +18,8 @@ type Config struct {
 	OrchestratorGithubAccessToken         string        `mapstructure:"ORCHESTRATOR_GITHUB_ACCESS_TOKEN"`
 	OrchestratorDispatcherJobPollInterval time.Duration `mapstructure:"ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL"`
 	OrchestratorJobLease                  time.Duration `mapstructure:"ORCHESTRATOR_JOB_LEASE"`
+	OrchestratorJobCleanupInterval        time.Duration `mapstructure:"ORCHESTRATOR_JOB_CLEANUP_INTERVAL"`
+	OrchestratorJobCleanupPollInterval    time.Duration `mapstructure:"ORCHESTRATOR_JOB_CLEANUP_POLL_INTERVAL"`
 	AgentClientShutdownTimer              time.Duration `mapstructure:"AGENT_CLIENT_SHUTDOWN_TIMER"`
 	AgentOrchestratorURL                  string        `mapstructure:"AGENT_ORCHESTRATOR_URL"`
 	AgentPollInterval                     time.Duration `mapstructure:"AGENT_POLL_INTERVAL"`
@@ -70,6 +72,8 @@ func init() {
 	viper.SetDefault("ORCHESTRATOR_GITHUB_ACCESS_TOKEN", "")
 	viper.SetDefault("ORCHESTRATOR_DISPATCHER_JOB_POLL_INTERVAL", "5s")
 	viper.SetDefault("ORCHESTRATOR_JOB_LEASE", "2m")
+	viper.SetDefault("ORCHESTRATOR_JOB_CLEANUP_INTERVAL", "720h")
+	viper.SetDefault("ORCHESTRATOR_JOB_CLEANUP_POLL_INTERVAL", "1h")
 	viper.SetDefault("AGENT_CLIENT_SHUTDOWN_TIMER", "5s")
 	viper.SetDefault("AGENT_ORCHESTRATOR_URL", "http://127.0.0.1:8080")
 	viper.SetDefault("AGENT_POLL_INTERVAL", "5s")

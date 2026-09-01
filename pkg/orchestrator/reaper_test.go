@@ -15,8 +15,10 @@ import (
 )
 
 type reaperJobs struct {
-	reaped  int
-	reapErr error
+	reaped   int
+	cleanups int
+	reapErr  error
+	cleanErr error
 }
 
 func (s *reaperJobs) CreatePendingJobs(context.Context, *scm.Webhook) error { return nil }
@@ -33,6 +35,10 @@ func (s *reaperJobs) CommitJobResult(context.Context, string, string, string, st
 func (s *reaperJobs) ReapExpiredClaims(context.Context) error {
 	s.reaped++
 	return s.reapErr
+}
+func (s *reaperJobs) CleanupExpiredJobs(context.Context) error {
+	s.cleanups++
+	return s.cleanErr
 }
 
 func startAndCancel(t *testing.T, d Dispatcher) {
@@ -54,33 +60,77 @@ func startAndCancel(t *testing.T, d Dispatcher) {
 func TestReaperStartShutdown(t *testing.T) {
 	jobs := &reaperJobs{}
 	d := NewDispatcher(
-		&config.Config{OrchestratorDispatcherJobPollInterval: time.Millisecond},
+		&config.Config{
+			OrchestratorDispatcherJobPollInterval: time.Millisecond,
+			OrchestratorJobCleanupPollInterval:    time.Hour,
+		},
 		log.Noop(),
 		jobs,
 	)
 	startAndCancel(t, d)
 	require.GreaterOrEqual(t, jobs.reaped, 1)
+	require.Equal(t, 0, jobs.cleanups)
 }
 
 func TestReaperReapsOnEachTick(t *testing.T) {
 	jobs := &reaperJobs{}
 	d := &dispatcher{
-		logger:          log.Noop(),
-		jobService:      jobs,
-		jobPollInterval: time.Millisecond,
+		logger:                 log.Noop(),
+		jobService:             jobs,
+		jobPollInterval:        time.Millisecond,
+		jobCleanupPollInterval: time.Hour,
 	}
 	startAndCancel(t, d)
 	require.GreaterOrEqual(t, jobs.reaped, 2)
+	require.Equal(t, 0, jobs.cleanups)
 }
 
 func TestReaperReapErrorIsLoggedAndContinues(t *testing.T) {
 	jobs := &reaperJobs{reapErr: errors.New("db down")}
 	d := &dispatcher{
-		logger:          log.Noop(),
-		jobService:      jobs,
-		jobPollInterval: time.Millisecond,
+		logger:                 log.Noop(),
+		jobService:             jobs,
+		jobPollInterval:        time.Millisecond,
+		jobCleanupPollInterval: time.Hour,
 	}
 	startAndCancel(t, d)
-	// Must not have stopped — reaped multiple times despite errors.
 	require.GreaterOrEqual(t, jobs.reaped, 2)
+}
+
+func TestReaperCleanupOnSeparateTicker(t *testing.T) {
+	jobs := &reaperJobs{}
+	d := &dispatcher{
+		logger:                 log.Noop(),
+		jobService:             jobs,
+		jobPollInterval:        time.Hour,
+		jobCleanupPollInterval: time.Millisecond,
+	}
+	startAndCancel(t, d)
+	require.Equal(t, 1, jobs.reaped)
+	require.GreaterOrEqual(t, jobs.cleanups, 1)
+}
+
+func TestReaperCleanupErrorIsLoggedAndContinues(t *testing.T) {
+	jobs := &reaperJobs{cleanErr: errors.New("db down")}
+	d := &dispatcher{
+		logger:                 log.Noop(),
+		jobService:             jobs,
+		jobPollInterval:        time.Hour,
+		jobCleanupPollInterval: time.Millisecond,
+	}
+	startAndCancel(t, d)
+	require.GreaterOrEqual(t, jobs.cleanups, 1)
+}
+
+func TestReaperSkipsCleanupWhenPollIntervalZero(t *testing.T) {
+	jobs := &reaperJobs{}
+	d := &dispatcher{
+		logger:                 log.Noop(),
+		jobService:             jobs,
+		jobPollInterval:        time.Millisecond,
+		jobCleanupPollInterval: 0,
+	}
+	startAndCancel(t, d)
+	require.GreaterOrEqual(t, jobs.reaped, 1)
+	require.Equal(t, 0, jobs.cleanups)
 }

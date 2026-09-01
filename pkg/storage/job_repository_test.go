@@ -330,3 +330,50 @@ func TestDeleteByRepoPRAndStacks(t *testing.T) {
 	_, err = repo.Get(context.Background(), drop.ID)
 	require.Error(t, err)
 }
+
+func TestCleanupExpiredJobsDeletesOldTerminalJobsOnly(t *testing.T) {
+	repo := testJobRepo(t)
+	cutoff := time.Now().UTC().Truncate(time.Second)
+	old := createJob(t, repo, &models.Job{
+		StackName: "old-ok",
+		Status:    models.JobStatusSucceeded,
+	})
+	oldFailed := createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "old-fail", Dir: "stacks/old-fail",
+		Status: models.JobStatusFailed,
+	})
+	fresh := createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "fresh", Dir: "stacks/fresh",
+		Status: models.JobStatusSucceeded,
+	})
+	oldPending := createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "old-pending", Dir: "stacks/old-pending",
+		Status: models.JobStatusPending,
+	})
+
+	db := repo.(*jobRepository).db.pool
+	require.NoError(t, db.Model(&models.Job{}).Where("id IN ?", []string{old.ID, oldFailed.ID, oldPending.ID}).
+		Update("created_at", cutoff.Add(-time.Hour)).Error)
+	require.NoError(t, db.Model(&models.Job{}).Where("id = ?", fresh.ID).
+		Update("created_at", cutoff.Add(time.Hour)).Error)
+
+	n, err := repo.CleanupExpiredJobs(context.Background(), cutoff)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+
+	_, err = repo.Get(context.Background(), old.ID)
+	require.Error(t, err)
+	_, err = repo.Get(context.Background(), oldFailed.ID)
+	require.Error(t, err)
+	require.Equal(t, fresh.ID, getJob(t, repo, fresh.ID).ID)
+	require.Equal(t, oldPending.ID, getJob(t, repo, oldPending.ID).ID)
+}
+
+func TestCleanupExpiredJobsNone(t *testing.T) {
+	repo := testJobRepo(t)
+	createJob(t, repo, &models.Job{Status: models.JobStatusSucceeded})
+
+	n, err := repo.CleanupExpiredJobs(context.Background(), time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+}

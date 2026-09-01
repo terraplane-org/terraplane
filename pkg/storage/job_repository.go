@@ -251,3 +251,16 @@ func (r *jobRepository) DeleteByRepoPRAndStacks(ctx context.Context, repo string
 	}
 	return int(result.RowsAffected), nil
 }
+
+func (r *jobRepository) CleanupExpiredJobs(ctx context.Context, cutoff time.Time) (int, error) {
+	result := r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where("created_at < ? AND status IN ?", cutoff, []models.JobStatus{
+			models.JobStatusSucceeded, models.JobStatusFailed,
+		}).
+		Delete(&models.Job{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
