@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.0] - 2026-09-17
+
 ### Added
 
-- Reaper now periodically cleans up jobs in the database after a defined period of time
+- Agents periodically snapshot terraform plan/apply output and send it to the orchestrator (`POST /agent/jobs/{id}/periodic_result`), which creates or updates a single PR progress comment for the job (including the final result)
+- `AGENT_PERIODIC_COMMENT_INTERVAL` (default `15s`) controls how often agents submit those snapshots
+- Reaper periodically deletes terminal jobs older than `ORCHESTRATOR_JOB_CLEANUP_INTERVAL` (default `720h`), polled every `ORCHESTRATOR_JOB_CLEANUP_POLL_INTERVAL` (default `1h`)
 
+### Changed
+
+- Plan/apply PR comments accept a job status (not just success/failure); in-progress comments show `running` with expanded live output, final comments stay collapsed
 
 ## [0.3.1] - 2026-08-26
 
