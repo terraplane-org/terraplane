@@ -17,6 +17,7 @@ type Client interface {
 	Heartbeat(ctx context.Context, jobID string, agentID string) error
 	Ack(ctx context.Context, jobID string, agentID string) error
 	SubmitResult(ctx context.Context, jobID string, agentID string, success bool, output string, errMsg string) error
+	SubmitPeriodicResult(ctx context.Context, jobID string, agentID string, output string) error
 }
 
 type claimResponse struct {
@@ -108,6 +109,22 @@ func (c *client) SubmitResult(ctx context.Context, jobID string, agentID string,
 
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("submit result failed: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *client) SubmitPeriodicResult(ctx context.Context, jobID string, agentID string, output string) error {
+	resp, err := c.post(ctx, fmt.Sprintf("/agent/jobs/%s/periodic_result", jobID), map[string]string{
+		"agent_id": agentID,
+		"output":   output,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("submit periodic result failed: %s", resp.Status)
 	}
 	return nil
 }

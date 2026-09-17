@@ -32,6 +32,9 @@ func (s *reaperJobs) AckJob(context.Context, string, string) error         { ret
 func (s *reaperJobs) CommitJobResult(context.Context, string, string, string, string, string) error {
 	return nil
 }
+func (s *reaperJobs) HandlePeriodicResult(context.Context, string, string, string) error {
+	return nil
+}
 func (s *reaperJobs) ReapExpiredClaims(context.Context) error {
 	s.reaped++
 	return s.reapErr

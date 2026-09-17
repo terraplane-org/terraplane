@@ -19,7 +19,8 @@ import (
 type Client interface {
 	GetCommitSHA(ctx context.Context, repo string, prNumber int) (string, error)
 	GetFile(ctx context.Context, repo string, path string, revision string) (string, error)
-	WriteComment(ctx context.Context, repo string, prNumber int, body string) error
+	WriteComment(ctx context.Context, repo string, prNumber int, body string) (int, error)
+	UpdateComment(ctx context.Context, repo string, prNumber int, body string, commentID int) error
 	ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error
 }
 
@@ -141,27 +142,57 @@ func (c *client) newRequest(ctx context.Context, method, u string, body io.Reade
 	return req, nil
 }
 
-func (c *client) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
+func (c *client) WriteComment(ctx context.Context, repo string, prNumber int, body string) (int, error) {
 	u := fmt.Sprintf("%s/repos/%s/issues/%d/comments", c.apiURL, repo, prNumber)
+	payloadBytes, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal comment payload for repository %s PR #%d: %w", repo, prNumber, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return 0, err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute GitHub API request to write comment to repository %s PR #%d: %w", repo, prNumber, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(res.Body)
+		return 0, fmt.Errorf("GitHub API request to write comment to repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	respBody, _ := io.ReadAll(res.Body)
+	var respData commentCreatedResponse
+	if err := json.Unmarshal(respBody, &respData); err != nil {
+		return 0, fmt.Errorf("failed to decode GitHub API response for write comment: %w", err)
+	}
+	return respData.ID, nil
+}
+
+func (c *client) UpdateComment(ctx context.Context, repo string, prNumber int, body string, commentID int) error {
+	u := fmt.Sprintf("%s/repos/%s/issues/comments/%d", c.apiURL, repo, commentID)
 	payloadBytes, err := json.Marshal(map[string]string{"body": body})
 	if err != nil {
 		return fmt.Errorf("failed to marshal comment payload for repository %s PR #%d: %w", repo, prNumber, err)
 	}
 
-	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	req, err := c.newRequest(ctx, http.MethodPatch, u, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return err
 	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to execute GitHub API request to write comment to repository %s PR #%d: %w", repo, prNumber, err)
+		return fmt.Errorf("failed to execute GitHub API request to update comment in repository %s PR #%d: %w", repo, prNumber, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
-	if res.StatusCode != http.StatusCreated {
+	if res.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("GitHub API request to write comment to repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
+		return fmt.Errorf("GitHub API request to update comment in repository %s PR #%d returned unexpected status %s: %s", repo, prNumber, res.Status, strings.TrimSpace(string(respBody)))
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil

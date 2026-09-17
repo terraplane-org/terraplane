@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
 )
 
 type Command struct {
@@ -14,12 +16,31 @@ type Command struct {
 	Args []string
 	Dir  string
 	Env  []string
+	Live io.Writer
 }
 
 type Result struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
+}
+
+// Buffer is a bytes.Buffer that is safe for concurrent Write and String.
+type Buffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *Buffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *Buffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // Runner executes external commands. Production code uses OSRunner.
@@ -42,6 +63,10 @@ func (OSRunner) Run(ctx context.Context, cmd Command) (Result, error) {
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
 	c.Stderr = &stderr
+	if cmd.Live != nil {
+		c.Stdout = io.MultiWriter(&stdout, cmd.Live)
+		c.Stderr = io.MultiWriter(&stderr, cmd.Live)
+	}
 
 	err := c.Run()
 	result := Result{

@@ -84,12 +84,27 @@ func (mr *MockClientMockRecorder) ReactToComment(ctx, repo, commentID, reaction 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReactToComment", reflect.TypeOf((*MockClient)(nil).ReactToComment), ctx, repo, commentID, reaction)
 }
 
-// WriteComment mocks base method.
-func (m *MockClient) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
+// UpdateComment mocks base method.
+func (m *MockClient) UpdateComment(ctx context.Context, repo string, prNumber int, body string, commentID int) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteComment", ctx, repo, prNumber, body)
+	ret := m.ctrl.Call(m, "UpdateComment", ctx, repo, prNumber, body, commentID)
 	ret0, _ := ret[0].(error)
 	return ret0
+}
+
+// UpdateComment indicates an expected call of UpdateComment.
+func (mr *MockClientMockRecorder) UpdateComment(ctx, repo, prNumber, body, commentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateComment", reflect.TypeOf((*MockClient)(nil).UpdateComment), ctx, repo, prNumber, body, commentID)
+}
+
+// WriteComment mocks base method.
+func (m *MockClient) WriteComment(ctx context.Context, repo string, prNumber int, body string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WriteComment", ctx, repo, prNumber, body)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // WriteComment indicates an expected call of WriteComment.

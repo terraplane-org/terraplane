@@ -624,7 +624,23 @@ func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
 			return nil
 		},
 	)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(7, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
+			require.Equal(s.T(), "7", payload["comment_id"])
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultUpdatesExistingComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_id":"42"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
 }
@@ -639,7 +655,8 @@ func (s *JobServiceSuite) TestCommitJobResultPlanFailure() {
 			return nil
 		},
 	)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(8, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "boom"))
 }
@@ -648,7 +665,7 @@ func (s *JobServiceSuite) TestCommitJobResultCommentFailureIsBestEffort() {
 	job := resultJob(models.JobActionPlan)
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(errors.New("github down"))
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(0, errors.New("github down"))
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "ok", ""))
 }
@@ -658,7 +675,8 @@ func (s *JobServiceSuite) TestCommitJobResultApplySuccessReleasesLock() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(9, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "apply out", ""))
 }
@@ -668,7 +686,8 @@ func (s *JobServiceSuite) TestCommitJobResultApplyFailureStillReleasesLock() {
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.locks.EXPECT().Delete(gomock.Any(), job.Repo, job.StackName, "default").Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(10, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
 
 	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "failed", "", "apply boom"))
 }
@@ -712,4 +731,79 @@ func (s *JobServiceSuite) TestCommitJobResultGetFailure() {
 	err := s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "", "")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to fetch job")
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultCreatesCommentAndStoresID() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"trigger_user":"alice"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(99, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *models.Job, payload map[string]interface{}) error {
+			require.Equal(s.T(), "99", payload["comment_id"])
+			require.Equal(s.T(), "alice", payload["trigger_user"])
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "partial out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultUpdatesExistingComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_id":"42"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "more out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultWriteFailureDoesNotStoreID() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(0, errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultInvalidCommentID() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_id":"nope"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	// Invalid stored IDs are logged; the job result path stays best-effort.
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultGetFailure() {
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	err := s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out")
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to fetch job")
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultInvalidPayload() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultUpdateCommentFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_id":"42"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultUpdatePayloadFailureIsBestEffort() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(99, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(errors.New("db"))
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
 }

@@ -151,7 +151,9 @@ func (s *ClientSuite) TestWriteCommentSuccess() {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = io.WriteString(w, `{"id":1}`)
 	})
-	require.NoError(s.T(), c.WriteComment(context.Background(), "acme/infra", 9, "hello pr"))
+	id, err := c.WriteComment(context.Background(), "acme/infra", 9, "hello pr")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), 1, id)
 }
 
 func (s *ClientSuite) TestReactToCommentSuccess() {
@@ -210,7 +212,7 @@ func (s *ClientSuite) TestWriteCommentNonCreated() {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = io.WriteString(w, `{"message":"nope"}`)
 	})
-	err := c.WriteComment(context.Background(), "acme/infra", 9, "hello")
+	_, err := c.WriteComment(context.Background(), "acme/infra", 9, "hello")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "unexpected status")
 	require.Contains(s.T(), err.Error(), "nope")
@@ -246,7 +248,7 @@ func (s *ClientSuite) TestWriteCommentTransportError() {
 		httpClient:  http.DefaultClient,
 		apiURL:      "http://127.0.0.1:1",
 	}
-	err := c.WriteComment(context.Background(), "acme/infra", 1, "x")
+	_, err := c.WriteComment(context.Background(), "acme/infra", 1, "x")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to execute GitHub API request to write comment")
 }
@@ -275,7 +277,7 @@ func (s *ClientSuite) TestGetFileAppendRefQueryError() {
 
 func (s *ClientSuite) TestWriteCommentRequestBuildError() {
 	c := &client{accessToken: "token", httpClient: http.DefaultClient, apiURL: "http://example.com/\x00"}
-	err := c.WriteComment(context.Background(), "acme/infra", 1, "x")
+	_, err := c.WriteComment(context.Background(), "acme/infra", 1, "x")
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
 }

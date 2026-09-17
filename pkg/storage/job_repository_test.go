@@ -319,6 +319,28 @@ func TestUpdateAndDelete(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUpdatePayloadMarshalsAndPersists(t *testing.T) {
+	repo := testJobRepo(t)
+	job := createJob(t, repo, &models.Job{Payload: `{"dir":"stacks/a"}`})
+
+	require.NoError(t, repo.UpdatePayload(context.Background(), job, map[string]interface{}{
+		"dir":        "stacks/a",
+		"comment_id": "123",
+	}))
+
+	got := getJob(t, repo, job.ID)
+	require.JSONEq(t, `{"comment_id":"123","dir":"stacks/a"}`, got.Payload)
+	require.JSONEq(t, `{"comment_id":"123","dir":"stacks/a"}`, job.Payload)
+}
+
+func TestUpdatePayloadInvalid(t *testing.T) {
+	repo := testJobRepo(t)
+	job := createJob(t, repo, &models.Job{})
+	err := repo.UpdatePayload(context.Background(), job, map[string]interface{}{"bad": make(chan int)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "marshal job payload")
+}
+
 func TestDeleteByRepoPRAndStacks(t *testing.T) {
 	repo := testJobRepo(t)
 	keep := createJob(t, repo, &models.Job{StackName: "keep", Dir: "stacks/keep"})

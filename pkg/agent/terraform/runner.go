@@ -3,6 +3,7 @@ package terraform
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +12,9 @@ import (
 )
 
 type Runner interface {
-	Init(ctx context.Context, terraformBin, workDir string) error
-	Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error)
-	Apply(ctx context.Context, terraformBin, workDir string) (string, error)
+	Init(ctx context.Context, terraformBin, workDir string, live io.Writer) error
+	Plan(ctx context.Context, terraformBin, workDir, planFlags string, live io.Writer) (string, error)
+	Apply(ctx context.Context, terraformBin, workDir string, live io.Writer) (string, error)
 }
 
 //go:generate mockgen -source=runner.go -destination=mock_terraform/mock_runner.go -package=mock_terraform
@@ -24,9 +25,9 @@ func NewRunner() Runner {
 	return &runner{}
 }
 
-func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
+func (r *runner) Init(ctx context.Context, terraformBin, workDir string, live io.Writer) error {
 	// TODO: We need to be able to supply TF_VAR somehow
-	result, err := r.run(ctx, terraformBin, workDir, "init", "-no-color", "-input=false")
+	result, err := r.run(ctx, live, terraformBin, workDir, "init", "-no-color", "-input=false")
 	if err != nil {
 		return fmt.Errorf("failed to run terraform init: %w", err)
 	}
@@ -36,7 +37,7 @@ func (r *runner) Init(ctx context.Context, terraformBin, workDir string) error {
 	return nil
 }
 
-func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags string) (string, error) {
+func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags string, live io.Writer) (string, error) {
 	planFile := "plan.tfplan"
 	if err := removeStalePlanFiles(workDir, planFile); err != nil {
 		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)
@@ -47,7 +48,7 @@ func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags stri
 		args = append(args, strings.Fields(planFlags)...)
 	}
 
-	result, err := r.run(ctx, terraformBin, workDir, args...)
+	result, err := r.run(ctx, live, terraformBin, workDir, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to run terraform plan: %w", err)
 	}
@@ -58,7 +59,7 @@ func (r *runner) Plan(ctx context.Context, terraformBin, workDir, planFlags stri
 	return output, nil
 }
 
-func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (string, error) {
+func (r *runner) Apply(ctx context.Context, terraformBin, workDir string, live io.Writer) (string, error) {
 	planFile := "plan.tfplan"
 	if err := removeStalePlanFiles(workDir, planFile); err != nil {
 		return "", fmt.Errorf("remove stale plan files in %q: %w", workDir, err)
@@ -74,7 +75,7 @@ func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (strin
 
 	args := []string{"apply", "-no-color", "-input=false", planFile}
 
-	result, err := r.run(ctx, terraformBin, workDir, args...)
+	result, err := r.run(ctx, live, terraformBin, workDir, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to run terraform apply: %w", err)
 	}
@@ -85,11 +86,12 @@ func (r *runner) Apply(ctx context.Context, terraformBin, workDir string) (strin
 	return output, nil
 }
 
-func (r *runner) run(ctx context.Context, terraformBin, workDir string, args ...string) (process.Result, error) {
+func (r *runner) run(ctx context.Context, live io.Writer, terraformBin, workDir string, args ...string) (process.Result, error) {
 	return process.OSRunner{}.Run(ctx, process.Command{
 		Name: terraformBin,
 		Args: args,
 		Dir:  workDir,
+		Live: live,
 	})
 }
 

@@ -22,20 +22,23 @@ func TestPublisherName(t *testing.T) {
 func TestPublisherWriteCommentSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := mock_github.NewMockClient(ctrl)
-	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(nil)
+	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(42, nil)
 
 	pub := NewPublisher(log.Noop(), client)
-	require.NoError(t, pub.WriteComment(context.Background(), "acme/infra", 3, "hi"))
+	id, err := pub.WriteComment(context.Background(), "acme/infra", 3, "hi")
+	require.NoError(t, err)
+	require.Equal(t, 42, id)
 }
 
 func TestPublisherWriteCommentPropagatesError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := mock_github.NewMockClient(ctrl)
-	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(errors.New("api down"))
+	client.EXPECT().WriteComment(gomock.Any(), "acme/infra", 3, "hi").Return(0, errors.New("api down"))
 
 	pub := NewPublisher(log.Noop(), client)
-	err := pub.WriteComment(context.Background(), "acme/infra", 3, "hi")
+	id, err := pub.WriteComment(context.Background(), "acme/infra", 3, "hi")
 	require.Error(t, err)
+	require.Equal(t, 0, id)
 	require.Contains(t, err.Error(), "api down")
 }
 

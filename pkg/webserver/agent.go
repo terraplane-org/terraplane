@@ -24,3 +24,8 @@ type agentJobResultPayload struct {
 	Output  string `json:"output"`
 	Error   string `json:"error"`
 }
+
+type agentPeriodicResultPayload struct {
+	AgentID string `json:"agent_id"`
+	Output  string `json:"output"`
+}

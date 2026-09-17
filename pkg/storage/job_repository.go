@@ -234,6 +234,15 @@ func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {
 	return r.db.pool.WithContext(ctx).Save(job).Error
 }
 
+func (r *jobRepository) UpdatePayload(ctx context.Context, job *models.Job, payload map[string]interface{}) error {
+	payloadJSON, err := marshalJobPayload(payload)
+	if err != nil {
+		return err
+	}
+	job.Payload = payloadJSON
+	return r.Update(ctx, job)
+}
+
 func (r *jobRepository) Delete(ctx context.Context, jobID string) error {
 	return r.db.pool.WithContext(ctx).Delete(&models.Job{}, "id = ?", jobID).Error
 }

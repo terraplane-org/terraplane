@@ -202,6 +202,20 @@ func (mr *MockJobRepositoryMockRecorder) Update(ctx, job any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockJobRepository)(nil).Update), ctx, job)
 }
 
+// UpdatePayload mocks base method.
+func (m *MockJobRepository) UpdatePayload(ctx context.Context, job *models.Job, payload map[string]any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePayload", ctx, job, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePayload indicates an expected call of UpdatePayload.
+func (mr *MockJobRepositoryMockRecorder) UpdatePayload(ctx, job, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePayload", reflect.TypeOf((*MockJobRepository)(nil).UpdatePayload), ctx, job, payload)
+}
+
 // UpsertPendingJob mocks base method.
 func (m *MockJobRepository) UpsertPendingJob(ctx context.Context, repo string, prNumber int, stackName, action string, payload map[string]any, agent string) (*models.Job, error) {
 	m.ctrl.T.Helper()
