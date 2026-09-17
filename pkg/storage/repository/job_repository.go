@@ -18,6 +18,7 @@ type JobRepository interface {
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context, now time.Time) (*ReapExpiredClaimsResult, error)
 	Update(ctx context.Context, job *models.Job) error
+	UpdatePayload(ctx context.Context, job *models.Job, payload map[string]interface{}) error
 	Delete(ctx context.Context, jobID string) error
 	DeleteByRepoPRAndStacks(ctx context.Context, repo string, prNumber int, stackNames []string) (int, error)
 	RefreshAgentClaims(ctx context.Context, agentID string, leaseExpiresAt *time.Time) error

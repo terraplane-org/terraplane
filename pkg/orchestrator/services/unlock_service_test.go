@@ -14,6 +14,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
+	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository/mock_repository"
 )
 
@@ -44,7 +45,7 @@ func (s *UnlockServiceSuite) TestRequiresSelector() {
 	unlock := command.UnlockCommand{}
 	unlock.Repo = "acme/infra"
 	unlock.PRNumber = 42
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, nil)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.Error(s.T(), err)
@@ -56,7 +57,7 @@ func (s *UnlockServiceSuite) TestUnlockByEnvironment() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return(twoEnvYAML, nil)
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a", "b"}).Return(2, nil)
 	s.jobs.EXPECT().DeleteByRepoPRAndStacks(gomock.Any(), unlock.Repo, unlock.PRNumber, []string{"a", "b"}).Return(2, nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(nil).Times(2)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, nil).Times(2)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.NoError(s.T(), err)
@@ -66,11 +67,11 @@ func (s *UnlockServiceSuite) TestFetchConfigFailurePublishesFailureComment() {
 	unlock := unlockCmd("terraplane unlock -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return("", errors.New("404"))
 	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ int, body string) error {
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
 			require.Contains(s.T(), body, "unlock ·")
 			require.Contains(s.T(), body, "failed")
 			require.Contains(s.T(), body, "failed to fetch terraplane.yaml")
-			return nil
+			return 0, nil
 		},
 	)
 
@@ -82,7 +83,7 @@ func (s *UnlockServiceSuite) TestFetchConfigFailurePublishesFailureComment() {
 func (s *UnlockServiceSuite) TestFetchConfigFailureCommentIsBestEffort() {
 	unlock := unlockCmd("terraplane unlock -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return("", errors.New("404"))
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(errors.New("github down"))
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, errors.New("github down"))
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.Error(s.T(), err)
@@ -93,7 +94,7 @@ func (s *UnlockServiceSuite) TestFetchConfigFailureCommentIsBestEffort() {
 func (s *UnlockServiceSuite) TestParseConfigFailure() {
 	unlock := unlockCmd("terraplane unlock -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return("stacks: [", nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, nil)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.Error(s.T(), err)
@@ -103,7 +104,7 @@ func (s *UnlockServiceSuite) TestParseConfigFailure() {
 func (s *UnlockServiceSuite) TestResolveStacksFailure() {
 	unlock := unlockCmd("terraplane unlock -s missing")
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return(twoStackYAML, nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, nil)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.Error(s.T(), err)
@@ -115,10 +116,10 @@ func (s *UnlockServiceSuite) TestLockDeleteFailurePublishesPerStack() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return(twoStackYAML, nil)
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a", "b"}).Return(0, errors.New("db"))
 	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ int, body string) error {
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
 			require.Contains(s.T(), body, "unlock ·")
 			require.Contains(s.T(), body, "failed")
-			return nil
+			return 0, nil
 		},
 	).Times(2)
 
@@ -132,7 +133,7 @@ func (s *UnlockServiceSuite) TestJobDeleteFailurePublishesPerStack() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return(twoStackYAML, nil)
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a"}).Return(1, nil)
 	s.jobs.EXPECT().DeleteByRepoPRAndStacks(gomock.Any(), unlock.Repo, unlock.PRNumber, []string{"a"}).Return(0, errors.New("db"))
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, nil)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.Error(s.T(), err)
@@ -145,10 +146,10 @@ func (s *UnlockServiceSuite) TestSuccessPublishesPerStackComments() {
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a", "b"}).Return(2, nil)
 	s.jobs.EXPECT().DeleteByRepoPRAndStacks(gomock.Any(), unlock.Repo, unlock.PRNumber, []string{"a", "b"}).Return(2, nil)
 
-	expectedA := feedback.UnlockResultComment("a", true, "")
-	expectedB := feedback.UnlockResultComment("b", true, "")
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, expectedA).Return(nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, expectedB).Return(nil)
+	expectedA := feedback.UnlockResultComment("a", models.JobStatusSucceeded, "")
+	expectedB := feedback.UnlockResultComment("b", models.JobStatusSucceeded, "")
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, expectedA).Return(0, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, expectedB).Return(0, nil)
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.NoError(s.T(), err)
@@ -159,7 +160,7 @@ func (s *UnlockServiceSuite) TestSuccessCommentFailureIsBestEffort() {
 	s.scm.EXPECT().GetFile("terraplane.yaml", unlock.CommitSHA, unlock.Repo).Return(twoStackYAML, nil)
 	s.locks.EXPECT().DeleteByRepoAndStacks(gomock.Any(), unlock.Repo, []string{"a"}).Return(1, nil)
 	s.jobs.EXPECT().DeleteByRepoPRAndStacks(gomock.Any(), unlock.Repo, unlock.PRNumber, []string{"a"}).Return(1, nil)
-	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(errors.New("github down"))
+	s.publisher.EXPECT().WriteComment(gomock.Any(), unlock.Repo, unlock.PRNumber, gomock.Any()).Return(0, errors.New("github down"))
 
 	err := s.svc.RunUnlock(context.Background(), unlock)
 	require.NoError(s.T(), err)

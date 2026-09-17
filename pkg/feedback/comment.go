@@ -24,19 +24,26 @@ type resourceDelta struct {
 }
 
 // JobResultComment formats a plan or apply job result as a GitHub PR comment body.
-func JobResultComment(job *models.Job, success bool, output, errMsg string) string {
+func JobResultComment(job *models.Job, status models.JobStatus, output, errMsg string) string {
 	switch job.Action {
 	case models.JobActionApply:
-		return ApplyResultComment(job, success, output, errMsg)
+		return ApplyResultComment(job, status, output, errMsg)
 	default:
-		return PlanResultComment(job, success, output, errMsg)
+		return PlanResultComment(job, status, output, errMsg)
 	}
 }
 
 // PlanResultComment formats a plan job result as a GitHub PR comment body.
-func PlanResultComment(job *models.Job, success bool, output, errMsg string) string {
+func PlanResultComment(job *models.Job, status models.JobStatus, output, errMsg string) string {
 	var b strings.Builder
-	writeHeader(&b, "plan", job.StackName, success)
+	var success bool
+	if status == models.JobStatusSucceeded {
+		success = true
+	} else {
+		success = false
+	}
+
+	writeHeader(&b, "plan", job.StackName, status)
 	writeMeta(&b, job)
 
 	if delta, fromSummary := parsePlanDelta(output); fromSummary {
@@ -47,7 +54,7 @@ func PlanResultComment(job *models.Job, success bool, output, errMsg string) str
 	}
 
 	writeError(&b, errMsg)
-	writeCollapsedOutput(&b, output)
+	writeOutput(&b, status, output)
 
 	if success {
 		fmt.Fprintf(&b, "\nApply when ready:\n\n```\nterraplane apply -s %s\n```\n", job.StackName)
@@ -57,9 +64,10 @@ func PlanResultComment(job *models.Job, success bool, output, errMsg string) str
 }
 
 // ApplyResultComment formats an apply job result as a GitHub PR comment body.
-func ApplyResultComment(job *models.Job, success bool, output, errMsg string) string {
+func ApplyResultComment(job *models.Job, status models.JobStatus, output, errMsg string) string {
 	var b strings.Builder
-	writeHeader(&b, "apply", job.StackName, success)
+
+	writeHeader(&b, "apply", job.StackName, status)
 	writeMeta(&b, job)
 
 	if delta, ok := parseApplyDelta(output); ok {
@@ -67,25 +75,25 @@ func ApplyResultComment(job *models.Job, success bool, output, errMsg string) st
 	}
 
 	writeError(&b, errMsg)
-	writeCollapsedOutput(&b, output)
+	writeOutput(&b, status, output)
 	return b.String()
 }
 
 // UnlockResultComment formats an unlock result as a GitHub PR comment body.
-func UnlockResultComment(stackName string, success bool, errMsg string) string {
+func UnlockResultComment(stackName string, status models.JobStatus, errMsg string) string {
 	var b strings.Builder
-	writeHeader(&b, "unlock", stackName, success)
+	writeHeader(&b, "unlock", stackName, status)
 	writeError(&b, errMsg)
 	return b.String()
 }
 
-func writeHeader(b *strings.Builder, action, stack string, success bool) {
-	status := statusLabel(success)
+func writeHeader(b *strings.Builder, action, stack string, status models.JobStatus) {
+	statusLabel := statusLabel(status)
 	switch {
 	case stack != "":
-		fmt.Fprintf(b, "### `%s` · %s · %s\n", stack, action, status)
+		fmt.Fprintf(b, "### `%s` · %s · %s\n", stack, action, statusLabel)
 	default:
-		fmt.Fprintf(b, "### %s · %s\n", action, status)
+		fmt.Fprintf(b, "### %s · %s\n", action, statusLabel)
 	}
 }
 
@@ -132,22 +140,31 @@ func writeError(b *strings.Builder, errMsg string) {
 	writeFencedBlock(b, errMsg)
 }
 
-func writeCollapsedOutput(b *strings.Builder, output string) {
+func writeOutput(b *strings.Builder, status models.JobStatus, output string) {
 	output = strings.TrimSpace(output)
 	if output == "" {
 		return
 	}
-	b.WriteString("\n<details>\n")
-	b.WriteString("<summary>Output</summary>\n\n")
+	if status == models.JobStatusRunning {
+		b.WriteString("\n<details open>\n")
+		b.WriteString("<summary>Output (live)</summary>\n\n")
+	} else {
+		b.WriteString("\n<details>\n")
+		b.WriteString("<summary>Output</summary>\n\n")
+	}
 	writeFencedBlock(b, output)
 	b.WriteString("</details>\n")
 }
 
-func statusLabel(success bool) string {
-	if success {
+func statusLabel(status models.JobStatus) string {
+	switch status {
+	case models.JobStatusSucceeded:
 		return "✅ passed"
+	case models.JobStatusRunning:
+		return "⌛ running"
+	default:
+		return "❌ failed"
 	}
-	return "❌ failed"
 }
 
 func shortSHA(sha string) string {

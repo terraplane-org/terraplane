@@ -17,3 +17,8 @@ type issueCommentWebhook struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
 }
+
+// https://docs.github.com/en/rest/issues/comments?apiVersion=2026-03-10#create-an-issue-comment
+type commentCreatedResponse struct {
+	ID int `json:"id"`
+}

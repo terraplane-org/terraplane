@@ -8,6 +8,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/scm"
+	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
 	"github.com/xyzjace/terraplane/pkg/terraplaneconfig"
 )
@@ -133,9 +134,9 @@ func (s *unlockService) RunUnlock(ctx context.Context, unlock command.UnlockComm
 }
 
 func (s *unlockService) publishUnlockSuccess(ctx context.Context, unlock command.UnlockCommand, stackName string) {
-	comment := feedback.UnlockResultComment(stackName, true, "")
+	comment := feedback.UnlockResultComment(stackName, models.JobStatusSucceeded, "")
 	// TODO: We should handle retries here
-	if err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
+	if _, err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
 		s.logger.Error(
 			"Failed to write unlock result comment",
 			"repo", unlock.Repo,
@@ -147,8 +148,8 @@ func (s *unlockService) publishUnlockSuccess(ctx context.Context, unlock command
 }
 
 func (s *unlockService) publishUnlockFailure(ctx context.Context, unlock command.UnlockCommand, stackName string, unlockErr error) {
-	comment := feedback.UnlockResultComment(stackName, false, unlockErr.Error())
-	if err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
+	comment := feedback.UnlockResultComment(stackName, models.JobStatusFailed, unlockErr.Error())
+	if _, err := s.scmPublisher.WriteComment(ctx, unlock.Repo, unlock.PRNumber, comment); err != nil {
 		s.logger.Error(
 			"Failed to write unlock failure comment",
 			"repo", unlock.Repo,

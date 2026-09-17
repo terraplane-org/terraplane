@@ -3,6 +3,7 @@ package terraform
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +14,8 @@ import (
 )
 
 type Manager interface {
-	RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string) (string, error)
-	RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string) (string, error)
+	RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string, live io.Writer) (string, error)
+	RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string, live io.Writer) (string, error)
 }
 
 //go:generate mockgen -source=manager.go -destination=mock_terraform/mock_manager.go -package=mock_terraform
@@ -45,7 +46,7 @@ func NewManagerWith(logger log.Logger, defaultVersion string, versionManager Ver
 	}
 }
 
-func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string) (string, error) {
+func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, toolVersion, planFlags string, live io.Writer) (string, error) {
 	terraformDir, version, err := m.resolveStack(workspaceDir, stackName, toolVersion)
 	if err != nil {
 		return "", err
@@ -56,14 +57,14 @@ func (m *manager) RunPlan(ctx context.Context, workspaceDir, stackName, toolVers
 		return "", err
 	}
 
-	if err := m.runner.Init(ctx, terraformBin, terraformDir); err != nil {
+	if err := m.runner.Init(ctx, terraformBin, terraformDir, live); err != nil {
 		return "", err
 	}
 
-	return m.runner.Plan(ctx, terraformBin, terraformDir, planFlags)
+	return m.runner.Plan(ctx, terraformBin, terraformDir, planFlags, live)
 }
 
-func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string) (string, error) {
+func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName, toolVersion string, live io.Writer) (string, error) {
 	terraformDir, version, err := m.resolveStack(workspaceDir, stackName, toolVersion)
 	if err != nil {
 		return "", err
@@ -74,7 +75,7 @@ func (m *manager) RunApply(ctx context.Context, workspaceDir, stackName, toolVer
 		return "", err
 	}
 
-	return m.runner.Apply(ctx, terraformBin, terraformDir)
+	return m.runner.Apply(ctx, terraformBin, terraformDir, live)
 }
 
 func (m *manager) resolveStack(workspaceDir, stackName, toolVersion string) (terraformDir, version string, err error) {

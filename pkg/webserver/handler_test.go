@@ -24,16 +24,18 @@ import (
 )
 
 type stubJobs struct {
-	err        error
-	called     chan *scm.Webhook
-	claimCmd   *command.Command
-	claimErr   error
-	refreshErr error
-	refreshed  []string
-	ackErr     error
-	acked      []string
-	commitErr  error
-	committed  []commitCall
+	err         error
+	called      chan *scm.Webhook
+	claimCmd    *command.Command
+	claimErr    error
+	refreshErr  error
+	refreshed   []string
+	ackErr      error
+	acked       []string
+	commitErr   error
+	committed   []commitCall
+	periodicErr error
+	periodics   []periodicCall
 }
 
 type commitCall struct {
@@ -41,6 +43,11 @@ type commitCall struct {
 	result string
 	output string
 	errMsg string
+}
+
+type periodicCall struct {
+	jobID  string
+	output string
 }
 
 func (s *stubJobs) CreatePendingJobs(_ context.Context, webhook *scm.Webhook) error {
@@ -75,6 +82,10 @@ func (s *stubJobs) CommitJobResult(_ context.Context, jobID, agentID, result, ou
 		jobID: jobID, result: result, output: output, errMsg: errMsg,
 	})
 	return s.commitErr
+}
+func (s *stubJobs) HandlePeriodicResult(_ context.Context, jobID, agentID, output string) error {
+	s.periodics = append(s.periodics, periodicCall{jobID: jobID, output: output})
+	return s.periodicErr
 }
 
 type stubUnlock struct {
@@ -412,6 +423,30 @@ func (s *HandlerSuite) TestAgentResultServiceError() {
 	require.Equal(s.T(), []commitCall{{
 		jobID: "job-1", result: "failed", errMsg: "boom",
 	}}, s.jobs.committed)
+}
+
+func (s *HandlerSuite) TestAgentPeriodicResultSuccess() {
+	rec := s.agentPOST("/agent/jobs/job-1/periodic_result", `{"agent_id":"agent-dev","output":"partial"}`)
+	require.Equal(s.T(), http.StatusNoContent, rec.Code)
+	require.Empty(s.T(), rec.Body.String())
+	require.Equal(s.T(), []periodicCall{{
+		jobID: "job-1", output: "partial",
+	}}, s.jobs.periodics)
+}
+
+func (s *HandlerSuite) TestAgentPeriodicResultInvalidJSON() {
+	rec := s.agentPOST("/agent/jobs/job-1/periodic_result", `{`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Empty(s.T(), s.jobs.periodics)
+}
+
+func (s *HandlerSuite) TestAgentPeriodicResultServiceError() {
+	s.jobs.periodicErr = errors.New("db")
+	rec := s.agentPOST("/agent/jobs/job-1/periodic_result", `{"agent_id":"agent-dev","output":"partial"}`)
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Equal(s.T(), []periodicCall{{
+		jobID: "job-1", output: "partial",
+	}}, s.jobs.periodics)
 }
 
 func TestServerStartShutdown(t *testing.T) {

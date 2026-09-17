@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/xyzjace/terraplane/config"
@@ -29,6 +30,7 @@ type JobService interface {
 	AckJob(ctx context.Context, jobID, agentID string) error
 	CommitJobResult(ctx context.Context, jobID, agentID, result, output, errMsg string) error
 	CleanupExpiredJobs(ctx context.Context) error
+	HandlePeriodicResult(ctx context.Context, jobID, agentID, output string) error
 }
 
 type jobService struct {
@@ -314,17 +316,8 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 		}
 	}
 
-	comment := feedback.JobResultComment(job, success, output, errMsg)
-	if err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), comment); err != nil {
-		j.logger.Error(
-			"Failed to write job result comment",
-			"job_id", jobID,
-			"repo", job.Repo,
-			"pr", job.PRNumber,
-			"stack", job.StackName,
-			"error", err,
-		)
-	}
+	comment := feedback.JobResultComment(job, job.Status, output, errMsg)
+	j.publishResultComment(ctx, job, comment)
 	return nil
 }
 
@@ -341,6 +334,77 @@ func (j *jobService) CleanupExpiredJobs(ctx context.Context) error {
 		j.logger.Debug("Cleaned up expired jobs", "count", n, "cutoff", cutoff)
 	}
 	return nil
+}
+
+func (j *jobService) HandlePeriodicResult(ctx context.Context, jobID, agentID, output string) error {
+	job, err := j.jobRepository.Get(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
+	}
+
+	comment := feedback.JobResultComment(job, job.Status, output, "")
+	j.publishResultComment(ctx, job, comment)
+	return nil
+}
+
+// publishResultComment updates the existing PR comment when payload has comment_id,
+// otherwise creates one and stores the ID for later updates. Failures are logged.
+func (j *jobService) publishResultComment(ctx context.Context, job *models.Job, body string) {
+	payload, err := unmarshalJobPayload(job.Payload)
+	if err != nil {
+		j.logger.Error(
+			"Failed to unmarshal job payload for comment",
+			"job_id", job.ID,
+			"error", err,
+		)
+		return
+	}
+
+	if commentID := payloadString(payload, "comment_id"); commentID != "" {
+		id, err := strconv.Atoi(commentID)
+		if err != nil {
+			j.logger.Error(
+				"Failed to parse stored comment ID",
+				"job_id", job.ID,
+				"comment_id", commentID,
+				"error", err,
+			)
+			return
+		}
+		if err := j.scmPublisher.UpdateComment(ctx, job.Repo, int(job.PRNumber), body, id); err != nil {
+			j.logger.Error(
+				"Failed to update job result comment",
+				"job_id", job.ID,
+				"repo", job.Repo,
+				"pr", job.PRNumber,
+				"stack", job.StackName,
+				"error", err,
+			)
+		}
+		return
+	}
+
+	id, err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), body)
+	if err != nil {
+		j.logger.Error(
+			"Failed to write job result comment",
+			"job_id", job.ID,
+			"repo", job.Repo,
+			"pr", job.PRNumber,
+			"stack", job.StackName,
+			"error", err,
+		)
+		return
+	}
+
+	payload["comment_id"] = strconv.Itoa(id)
+	if err := j.jobRepository.UpdatePayload(ctx, job, payload); err != nil {
+		j.logger.Error(
+			"Failed to update job payload with comment ID",
+			"job_id", job.ID,
+			"error", err,
+		)
+	}
 }
 
 func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {

@@ -20,9 +20,18 @@ func (p *publisher) AcknowledgeComment(ctx context.Context, repo string, prNumbe
 	return nil
 }
 
-func (p *publisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) error {
-	if err := p.client.WriteComment(ctx, repo, prNumber, body); err != nil {
+func (p *publisher) WriteComment(ctx context.Context, repo string, prNumber int, body string) (int, error) {
+	commentID, err := p.client.WriteComment(ctx, repo, prNumber, body)
+	if err != nil {
 		p.logger.Error("Failed to write PR comment", "repo", repo, "pr", prNumber, "error", err)
+		return 0, err
+	}
+	return commentID, nil
+}
+
+func (p *publisher) UpdateComment(ctx context.Context, repo string, prNumber int, body string, commentID int) error {
+	if err := p.client.UpdateComment(ctx, repo, prNumber, body, commentID); err != nil {
+		p.logger.Error("Failed to update PR comment", "repo", repo, "pr", prNumber, "error", err)
 		return err
 	}
 	return nil

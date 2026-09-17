@@ -10,6 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/config"
+	"github.com/xyzjace/terraplane/internal/process"
 	"github.com/xyzjace/terraplane/pkg/agent/orchestrator/mock_orchestrator"
 	"github.com/xyzjace/terraplane/pkg/agent/terraform/mock_terraform"
 	"github.com/xyzjace/terraplane/pkg/agent/workspace/mock_workspace"
@@ -80,7 +81,7 @@ func (s *HandlersSuite) TestHandlePlanSuccessKeepsWorkspace() {
 	h := s.newHandlers()
 
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), "acme/infra", "abc123", "stg").Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", "-target=module.vpc").Return("Plan: 1 to add", nil)
+	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", "-target=module.vpc", gomock.Any()).Return("Plan: 1 to add", nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), "job-1", "agent-test", true, "Plan: 1 to add", "").Return(nil)
 	// No RemoveWorkspace on success.
 
@@ -108,7 +109,7 @@ func (s *HandlersSuite) TestHandlePlanTerraformFailureRemovesWorkspace() {
 	h := s.newHandlers()
 
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), "acme/infra", "abc123", "stg").Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", "-target=module.vpc").Return("partial", errors.New("tf failed"))
+	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", "-target=module.vpc", gomock.Any()).Return("partial", errors.New("tf failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), "job-1", "agent-test", false, "partial", gomock.Any()).Return(nil)
 
@@ -119,7 +120,7 @@ func (s *HandlersSuite) TestHandlePlanTerraformFailureRemoveWorkspaceErrorStillS
 	h := s.newHandlers()
 
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("tf failed"))
+	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("tf failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(errors.New("rm failed"))
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), false, gomock.Any(), gomock.Any()).Return(nil)
 
@@ -129,7 +130,7 @@ func (s *HandlersSuite) TestHandlePlanTerraformFailureRemoveWorkspaceErrorStillS
 func (s *HandlersSuite) TestHandlePlanTerraformFailureSubmitError() {
 	h := s.newHandlers()
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("tf failed"))
+	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("tf failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), false, gomock.Any(), gomock.Any()).Return(errors.New("submit failed"))
 
@@ -140,7 +141,7 @@ func (s *HandlersSuite) TestHandlePlanSuccessSubmitFailureRemovesWorkspace() {
 	// Intention: failing to deliver a successful result still cleans up (err is set from writeErr).
 	h := s.newHandlers()
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
+	s.tf.EXPECT().RunPlan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(errors.New("submit failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 
@@ -154,7 +155,7 @@ func (s *HandlersSuite) TestHandleApplySuccessAlwaysRemovesWorkspace() {
 	h := s.newHandlers()
 
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), "acme/infra", "abc123", "stg").Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0").Return("Apply complete!", nil)
+	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0", gomock.Any()).Return("Apply complete!", nil)
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), "job-1", "agent-test", true, "Apply complete!", "").Return(nil)
 
@@ -180,7 +181,7 @@ func (s *HandlersSuite) TestHandleApplyFetchFailureSubmitErrorIsLoggedNotReturne
 func (s *HandlersSuite) TestHandleApplyTerraformFailureRemovesWorkspace() {
 	h := s.newHandlers()
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0").Return("out", errors.New("apply failed"))
+	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0", gomock.Any()).Return("out", errors.New("apply failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), "job-1", "agent-test", false, "out", gomock.Any()).Return(nil)
 
@@ -190,7 +191,7 @@ func (s *HandlersSuite) TestHandleApplyTerraformFailureRemovesWorkspace() {
 func (s *HandlersSuite) TestHandleApplyTerraformFailureSubmitError() {
 	h := s.newHandlers()
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("apply failed"))
+	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", errors.New("apply failed"))
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), false, gomock.Any(), gomock.Any()).Return(errors.New("submit failed"))
 
@@ -200,7 +201,7 @@ func (s *HandlersSuite) TestHandleApplyTerraformFailureSubmitError() {
 func (s *HandlersSuite) TestHandleApplyRemoveWorkspaceErrorIsBestEffort() {
 	h := s.newHandlers()
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
+	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(errors.New("rm failed"))
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(nil)
 
@@ -210,7 +211,7 @@ func (s *HandlersSuite) TestHandleApplyRemoveWorkspaceErrorIsBestEffort() {
 func (s *HandlersSuite) TestHandleApplySuccessSubmitFailureStillRemovesWorkspace() {
 	h := s.newHandlers()
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
+	s.tf.EXPECT().RunApply(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("ok", nil)
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(errors.New("submit failed"))
 
@@ -247,7 +248,7 @@ func (s *HandlersSuite) TestDispatchPlanRunsHandler() {
 	h := s.newHandlers()
 
 	s.ws.EXPECT().ProvisionWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", gomock.Any()).Return("ok", nil)
+	s.tf.EXPECT().RunPlan(gomock.Any(), "/tmp/ws", "stg", "1.5.0", gomock.Any(), gomock.Any()).Return("ok", nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(nil)
 
 	h.Dispatch(context.Background(), &command.Command{Kind: command.KindPlan, Plan: *planCmd()}, done)
@@ -264,7 +265,7 @@ func (s *HandlersSuite) TestDispatchApplyRunsHandler() {
 	h := s.newHandlers()
 
 	s.ws.EXPECT().FetchWorkspace(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("/tmp/ws", nil)
-	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0").Return("ok", nil)
+	s.tf.EXPECT().RunApply(gomock.Any(), "/tmp/ws", "stg", "1.5.0", gomock.Any()).Return("ok", nil)
 	s.ws.EXPECT().RemoveWorkspace(gomock.Any(), "/tmp/ws").Return(nil)
 	s.oc.EXPECT().SubmitResult(gomock.Any(), gomock.Any(), gomock.Any(), true, "ok", "").Return(nil)
 
@@ -274,5 +275,72 @@ func (s *HandlersSuite) TestDispatchApplyRunsHandler() {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		s.T().Fatal("timed out waiting for apply handler")
+	}
+}
+
+func (s *HandlersSuite) TestWatchOutputSubmitsChangedSnapshotsOnly() {
+	h := s.newHandlers()
+	h.periodicInterval = 15 * time.Millisecond
+	out := &process.Buffer{}
+
+	first := make(chan struct{})
+	second := make(chan struct{})
+	s.oc.EXPECT().SubmitPeriodicResult(gomock.Any(), "job-1", "agent-test", "hello").DoAndReturn(
+		func(context.Context, string, string, string) error {
+			close(first)
+			return nil
+		},
+	)
+	s.oc.EXPECT().SubmitPeriodicResult(gomock.Any(), "job-1", "agent-test", "hello\nworld").DoAndReturn(
+		func(context.Context, string, string, string) error {
+			close(second)
+			return nil
+		},
+	)
+
+	stop := h.watchOutput(context.Background(), "job-1", out)
+	defer stop()
+
+	_, err := out.Write([]byte("hello"))
+	s.Require().NoError(err)
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		s.T().Fatal("timed out waiting for first periodic result")
+	}
+
+	_, err = out.Write([]byte("\nworld"))
+	s.Require().NoError(err)
+	select {
+	case <-second:
+	case <-time.After(time.Second):
+		s.T().Fatal("timed out waiting for second periodic result")
+	}
+}
+
+func (s *HandlersSuite) TestWatchOutputSkipsEmptyAndRetriesAfterError() {
+	h := s.newHandlers()
+	h.periodicInterval = 15 * time.Millisecond
+	out := &process.Buffer{}
+
+	stop := h.watchOutput(context.Background(), "job-1", out)
+	defer stop()
+	time.Sleep(40 * time.Millisecond)
+
+	retried := make(chan struct{})
+	s.oc.EXPECT().SubmitPeriodicResult(gomock.Any(), "job-1", "agent-test", "hello").Return(errors.New("boom"))
+	s.oc.EXPECT().SubmitPeriodicResult(gomock.Any(), "job-1", "agent-test", "hello").DoAndReturn(
+		func(context.Context, string, string, string) error {
+			close(retried)
+			return nil
+		},
+	)
+
+	_, err := out.Write([]byte("hello"))
+	s.Require().NoError(err)
+	select {
+	case <-retried:
+	case <-time.After(time.Second):
+		s.T().Fatal("timed out waiting for retry after submit error")
 	}
 }

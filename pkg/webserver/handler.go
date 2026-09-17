@@ -47,6 +47,7 @@ func NewHandler(
 	h.mux.Handle("POST /agent/jobs/{id}/heartbeat", h.requireBearer(http.HandlerFunc(h.agentHeartbeatHandler)))
 	h.mux.Handle("POST /agent/jobs/{id}/ack", h.requireBearer(http.HandlerFunc(h.agentJobAckHandler)))
 	h.mux.Handle("POST /agent/jobs/{id}/result", h.requireBearer(http.HandlerFunc(h.agentJobResultHandler)))
+	h.mux.Handle("POST /agent/jobs/{id}/periodic_result", h.requireBearer(http.HandlerFunc(h.agentPeriodicResultHandler)))
 
 	return h
 }
@@ -200,6 +201,24 @@ func (h *handler) agentJobResultHandler(w http.ResponseWriter, r *http.Request) 
 	if err := h.jobService.CommitJobResult(r.Context(), jobID, payload.AgentID, payload.Result, payload.Output, payload.Error); err != nil {
 		h.logger.Error("Failed to commit job result", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
 		writeResponse(w, http.StatusInternalServerError, "Failed to commit job result")
+		return
+	}
+
+	writeNoContent(w)
+}
+
+func (h *handler) agentPeriodicResultHandler(w http.ResponseWriter, r *http.Request) {
+	var payload agentPeriodicResultPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Error("Failed to unmarshal agent periodic result request body", "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to unmarshal agent periodic result request body")
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if err := h.jobService.HandlePeriodicResult(r.Context(), jobID, payload.AgentID, payload.Output); err != nil {
+		h.logger.Error("Failed to handle periodic result", "job_id", jobID, "agent_id", payload.AgentID, "error", err)
+		writeResponse(w, http.StatusInternalServerError, "Failed to handle periodic result")
 		return
 	}
 
