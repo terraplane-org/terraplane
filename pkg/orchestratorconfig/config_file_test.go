@@ -22,7 +22,7 @@ agents:
   agent-unused:
     token_env: ORCHESTRATOR_AGENT_UNUSED_TOKEN
 repos:
-  org/aws-infra:
+  - repo: org/aws-infra
     environments:
       - name: staging
         agent: agent-staging
@@ -48,7 +48,7 @@ repos:
             dir: terraform/environments/floop/ap-southeast-2/foundation
             tags:
               - foundation
-  org/aws*:
+  - repo: org/aws*
     environments:
       - name: whatever
         agent: agent-whatever
@@ -58,7 +58,7 @@ repos:
             agent: agent-something-different
           - name: whatever-apse2-slow
             dir: terraform/environments/whatever/ap-southeast-2/slow
-  org/*:
+  - repo: org/*
     environments:
       - name: generic
         agent: agent-generic
@@ -68,57 +68,71 @@ repos:
 enabled: false
 `
 
+// singleRepo builds a minimal valid config with one agent and one repo entry.
+func singleRepo(repo string) string {
+	return `
+agents:
+  agent-a:
+    token_env: TOKEN_A
+repos:
+  - repo: ` + repo + `
+    environments:
+      - name: staging
+        agent: agent-a
+        stacks:
+          - name: app
+            dir: stacks/app
+`
+}
+
 func TestParseConfigFile(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		cfg, err := orchestratorconfig.ParseConfigFile([]byte(validYAML))
 		require.NoError(t, err)
 		require.False(t, cfg.Enabled)
 		require.Equal(t, "ORCHESTRATOR_AGENT_STAGING_TOKEN", cfg.Agents["agent-staging"].TokenEnv)
-		require.Len(t, cfg.Repos["org/aws-infra"].Environments, 2)
-		require.Equal(t, "staging", cfg.Repos["org/aws-infra"].Environments[0].Name)
-		require.Equal(t, "agent-staging", cfg.Repos["org/aws-infra"].Environments[0].Agent)
-		stack := cfg.Repos["org/aws-infra"].Environments[0].Stacks[0]
+		require.Len(t, cfg.Repos, 3)
+		require.Equal(t, "org/aws-infra", cfg.Repos[0].Repo)
+		require.Len(t, cfg.Repos[0].Environments, 2)
+		require.Equal(t, "staging", cfg.Repos[0].Environments[0].Name)
+		require.Equal(t, "agent-staging", cfg.Repos[0].Environments[0].Agent)
+		stack := cfg.Repos[0].Environments[0].Stacks[0]
 		require.Equal(t, "stg-apse2-foundation", stack.Name)
 		require.Equal(t, "1.9.0", stack.ToolVersion)
 		require.Equal(t, []string{"foundation", "something"}, stack.Tags)
-		require.Equal(t, "agent-something-different", cfg.Repos["org/aws*"].Environments[0].Stacks[0].Agent)
+		require.Equal(t, "org/aws*", cfg.Repos[1].Repo)
+		require.Equal(t, "agent-something-different", cfg.Repos[1].Environments[0].Stacks[0].Agent)
 	})
 
 	t.Run("omitted enabled defaults to false", func(t *testing.T) {
-		cfg, err := orchestratorconfig.ParseConfigFile([]byte(`
-agents:
-  agent-a:
-    token_env: TOKEN_A
-repos:
-  org/app:
-    environments:
-      - name: staging
-        agent: agent-a
-        stacks:
-          - name: app
-            dir: stacks/app
-`))
+		cfg, err := orchestratorconfig.ParseConfigFile([]byte(singleRepo("org/app")))
 		require.NoError(t, err)
 		require.False(t, cfg.Enabled)
 	})
 
 	t.Run("enabled true", func(t *testing.T) {
-		cfg, err := orchestratorconfig.ParseConfigFile([]byte(`
+		cfg, err := orchestratorconfig.ParseConfigFile([]byte(singleRepo("org/app") + "enabled: true\n"))
+		require.NoError(t, err)
+		require.True(t, cfg.Enabled)
+	})
+
+	t.Run("unknown field is rejected", func(t *testing.T) {
+		_, err := orchestratorconfig.ParseConfigFile([]byte(`
 agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
         stacks:
           - name: app
             dir: stacks/app
-enabled: true
+            tool_verison: "1.9.0"
 `))
-		require.NoError(t, err)
-		require.True(t, cfg.Enabled)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tool_verison")
 	})
 
 	t.Run("invalid yaml", func(t *testing.T) {
@@ -150,7 +164,7 @@ agents:
 agents:
   agent-a: {}
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -170,7 +184,7 @@ agents:
   agent-b:
     token_env: SHARED
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -188,14 +202,14 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  alpha/one:
+  - repo: alpha/one
     environments:
       - name: staging
         agent: agent-a
         stacks:
           - name: foundation
             dir: stacks/one
-  beta/two:
+  - repo: beta/two
     environments:
       - name: staging
         agent: agent-a
@@ -213,7 +227,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -236,7 +250,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-missing
@@ -254,7 +268,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -273,7 +287,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         stacks:
@@ -290,7 +304,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -307,7 +321,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -330,7 +344,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: " "
         agent: agent-a
@@ -348,7 +362,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -364,7 +378,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -382,7 +396,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -402,7 +416,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -605,7 +619,7 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  org/app:
+  - repo: org/app
     environments:
       - name: staging
         agent: agent-a
@@ -705,14 +719,14 @@ agents:
   agent-a:
     token_env: TOKEN_A
 repos:
-  alpha/one:
+  - repo: alpha/one
     environments:
       - name: staging
         agent: agent-a
         stacks:
           - name: foundation
             dir: stacks/one
-  beta/two:
+  - repo: beta/two
     environments:
       - name: staging
         agent: agent-a

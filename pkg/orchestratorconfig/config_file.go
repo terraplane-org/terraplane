@@ -1,7 +1,10 @@
 package orchestratorconfig
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"sort"
 	"strings"
@@ -12,7 +15,7 @@ import (
 // ConfigFile is the orchestrator-side agent and repo configuration.
 type ConfigFile struct {
 	Agents  map[string]Agent `yaml:"agents"`
-	Repos   map[string]Repo  `yaml:"repos"`
+	Repos   []RepoConfig     `yaml:"repos"`
 	Enabled bool             `yaml:"enabled"`
 }
 
@@ -21,9 +24,11 @@ type Agent struct {
 	TokenEnv string `yaml:"token_env"`
 }
 
-// Repo is the environment and stack config for one repo pattern.
-// Patterns are path globs: * and ? do not match across /.
-type Repo struct {
+// RepoConfig is the environment and stack config for the repos matched by
+// Repo. Repo is a path glob (see path.Match) compared case-insensitively
+// against the owner/name slug; * and ? do not match across /.
+type RepoConfig struct {
+	Repo         string        `yaml:"repo"`
 	Environments []Environment `yaml:"environments"`
 }
 
@@ -52,9 +57,12 @@ type ResolvedStack struct {
 	Tags        []string
 }
 
+// ParseConfigFile decodes and validates a config file. Unknown fields are an error.
 func ParseConfigFile(data []byte) (*ConfigFile, error) {
 	var cfg ConfigFile
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse orchestrator config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -65,11 +73,11 @@ func ParseConfigFile(data []byte) (*ConfigFile, error) {
 
 // Validate checks agents, repo patterns, and stack structure.
 //
-// An exact repo pattern outranks a glob. Otherwise the pattern with more
-// literal characters wins. Overlapping patterns of equal specificity are rejected.
-// Stack names are unique across environments inside a repo pattern, and may
-// repeat on a different repo pattern. Every resolved agent must be declared,
-// and each agent token_env is unique.
+// Repos are matched in order and the first match wins. Each repo pattern may
+// appear once. An exact (wildcard-free) repo listed after a glob that already
+// matches it is rejected as unreachable. Stack names are unique across
+// environments inside a repo, and may repeat on a different repo. Every
+// resolved agent must be declared, and each agent token_env is unique.
 func (c *ConfigFile) Validate() error {
 	agents, err := c.normalizedAgents()
 	if err != nil {
@@ -79,36 +87,35 @@ func (c *ConfigFile) Validate() error {
 		return fmt.Errorf("no repos configured")
 	}
 
-	patterns := make([]string, 0, len(c.Repos))
-	for pattern := range c.Repos {
-		patterns = append(patterns, pattern)
-	}
-	sort.Strings(patterns)
-
-	for _, pattern := range patterns {
+	seen := make(map[string]struct{}, len(c.Repos))
+	for i, rc := range c.Repos {
+		pattern := rc.Repo
 		if err := validatePattern(pattern); err != nil {
 			return err
 		}
-		if err := validateRepo(pattern, c.Repos[pattern], agents); err != nil {
+		key := strings.ToLower(pattern)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("repo %q is listed more than once", pattern)
+		}
+		seen[key] = struct{}{}
+
+		if err := validateRepo(pattern, rc, agents); err != nil {
 			return err
 		}
-	}
 
-	for i := 0; i < len(patterns); i++ {
-		for j := i + 1; j < len(patterns); j++ {
-			if !patternsOverlap(patterns[i], patterns[j]) {
-				continue
+		if !isExact(pattern) {
+			continue
+		}
+		for _, earlier := range c.Repos[:i] {
+			if ok, _ := path.Match(strings.ToLower(earlier.Repo), key); ok {
+				return fmt.Errorf("repo %q is unreachable: %q is listed before it and already matches", pattern, earlier.Repo)
 			}
-			if moreSpecific(patterns[i], patterns[j]) || moreSpecific(patterns[j], patterns[i]) {
-				continue
-			}
-			return fmt.Errorf("repo patterns %q and %q are ambiguous", patterns[i], patterns[j])
 		}
 	}
 	return nil
 }
 
-// ResolveStacks matches repo to the most specific repo pattern, then returns
+// ResolveStacks matches repo to the first matching repo pattern, then returns
 // stacks for the given stack, environment, and tag selectors.
 //
 // Selectors of the same kind are combined with OR. Different kinds are
@@ -127,7 +134,7 @@ func (c *ConfigFile) ResolveStacks(repo string, stackNames, environmentNames, ta
 		return nil, fmt.Errorf("repo is required")
 	}
 
-	_, matched, err := c.matchRepo(repo)
+	matched, err := c.matchRepo(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +263,24 @@ func (c *ConfigFile) normalizedAgents() (map[string]string, error) {
 	return agents, nil
 }
 
-func validateRepo(pattern string, repo Repo, agents map[string]string) error {
+// validatePattern accepts any well-formed path.Match pattern without
+// surrounding whitespace.
+func validatePattern(pattern string) error {
+	if pattern == "" || strings.TrimSpace(pattern) != pattern {
+		return fmt.Errorf("repo pattern %q is invalid", pattern)
+	}
+	if _, err := path.Match(pattern, ""); err != nil {
+		return fmt.Errorf("repo pattern %q: %w", pattern, err)
+	}
+	return nil
+}
+
+// isExact reports whether pattern contains no glob metacharacters.
+func isExact(pattern string) bool {
+	return !strings.ContainsAny(pattern, `*?[\`)
+}
+
+func validateRepo(pattern string, repo RepoConfig, agents map[string]string) error {
 	if len(repo.Environments) == 0 {
 		return fmt.Errorf("repo %q has no environments", pattern)
 	}
@@ -327,48 +351,23 @@ func validateRepo(pattern string, repo Repo, agents map[string]string) error {
 	return nil
 }
 
-func (c *ConfigFile) matchRepo(repo string) (string, Repo, error) {
-	type hit struct {
-		pattern  string
-		exact    bool
-		literals int
-	}
-
-	patterns := make([]string, 0, len(c.Repos))
-	for pattern := range c.Repos {
-		patterns = append(patterns, pattern)
-	}
-	sort.Strings(patterns)
-
-	var best *hit
-	var tied []string
-	for _, pattern := range patterns {
-		ok, err := path.Match(pattern, repo)
+// matchRepo returns the first repo whose pattern matches the slug,
+// comparing case-insensitively.
+func (c *ConfigFile) matchRepo(repo string) (*RepoConfig, error) {
+	slug := strings.ToLower(repo)
+	for i := range c.Repos {
+		ok, err := path.Match(strings.ToLower(c.Repos[i].Repo), slug)
 		if err != nil {
-			return "", Repo{}, fmt.Errorf("repo pattern %q: %w", pattern, err)
+			return nil, fmt.Errorf("repo pattern %q: %w", c.Repos[i].Repo, err)
 		}
-		if !ok {
-			continue
-		}
-		exact, literals := patternRank(pattern)
-		switch {
-		case best == nil || outranks(exact, literals, best.exact, best.literals):
-			best = &hit{pattern: pattern, exact: exact, literals: literals}
-			tied = []string{pattern}
-		case exact == best.exact && literals == best.literals:
-			tied = append(tied, pattern)
+		if ok {
+			return &c.Repos[i], nil
 		}
 	}
-	if best == nil {
-		return "", Repo{}, fmt.Errorf("no repo pattern matches %q", repo)
-	}
-	if len(tied) > 1 {
-		return "", Repo{}, fmt.Errorf("repo %q matches multiple patterns with equal specificity: %s", repo, quoteList(tied))
-	}
-	return best.pattern, c.Repos[best.pattern], nil
+	return nil, fmt.Errorf("no repo pattern matches %q", repo)
 }
 
-func resolveRepo(repo Repo, agents map[string]string) []ResolvedStack {
+func resolveRepo(repo *RepoConfig, agents map[string]string) []ResolvedStack {
 	out := make([]ResolvedStack, 0)
 	for _, env := range repo.Environments {
 		envName := strings.TrimSpace(env.Name)
@@ -397,12 +396,4 @@ func resolveRepo(repo Repo, agents map[string]string) []ResolvedStack {
 		}
 	}
 	return out
-}
-
-func quoteList(values []string) string {
-	parts := make([]string, len(values))
-	for i, v := range values {
-		parts[i] = fmt.Sprintf("%q", v)
-	}
-	return strings.Join(parts, ", ")
 }
