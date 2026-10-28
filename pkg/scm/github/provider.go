@@ -61,6 +61,10 @@ func (p *provider) GetFile(fileName string, revision string, repo string) (strin
 	return p.client.GetFile(context.Background(), repo, fileName, revision)
 }
 
+func (p *provider) PullRequestApproved(ctx context.Context, repo string, prNumber int) (bool, error) {
+	return p.client.PullRequestApproved(ctx, repo, prNumber)
+}
+
 func (p *provider) parseIssueCommentWebhook(r *http.Request) ([]scm.Webhook, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

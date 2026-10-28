@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -304,6 +306,88 @@ func (s *ClientSuite) TestNewRequestInvalidURL() {
 	_, err := c.newRequest(context.Background(), http.MethodGet, "http://example.com/\x00", nil)
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to create GitHub API request")
+}
+
+func (s *ClientSuite) TestSetCommitStatusTruncatesDescription() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), http.MethodPost, r.Method)
+		require.Equal(s.T(), "/repos/acme/infra/statuses/abc123", r.URL.Path)
+		var body map[string]string
+		require.NoError(s.T(), json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(s.T(), "pending", body["state"])
+		require.Equal(s.T(), "terraplane/plan", body["context"])
+		require.Len(s.T(), body["description"], 140)
+		w.WriteHeader(http.StatusCreated)
+	})
+	err := c.SetCommitStatus(context.Background(), "acme/infra", "abc123", "pending", "terraplane/plan", strings.Repeat("x", 200))
+	require.NoError(s.T(), err)
+}
+
+func (s *ClientSuite) TestPullRequestApprovedByOtherReviewer() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/infra/pulls/7":
+			require.NoError(s.T(), json.NewEncoder(w).Encode(map[string]any{
+				"user": map[string]any{"login": "author"},
+			}))
+		case "/repos/acme/infra/pulls/7/reviews":
+			require.NoError(s.T(), json.NewEncoder(w).Encode([]map[string]any{
+				{"user": map[string]any{"login": "author"}, "state": "APPROVED", "submitted_at": "2026-01-01T00:00:00Z"},
+				{"user": map[string]any{"login": "reviewer"}, "state": "COMMENTED", "submitted_at": "2026-01-02T00:00:00Z"},
+				{"user": map[string]any{"login": "reviewer"}, "state": "APPROVED", "submitted_at": "2026-01-03T00:00:00Z"},
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	ok, err := c.PullRequestApproved(context.Background(), "acme/infra", 7)
+	require.NoError(s.T(), err)
+	require.True(s.T(), ok)
+}
+
+func (s *ClientSuite) TestPullRequestApprovalDroppedWhenChangesRequested() {
+	c, _ := s.newClient(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/infra/pulls/7":
+			require.NoError(s.T(), json.NewEncoder(w).Encode(map[string]any{
+				"user": map[string]any{"login": "author"},
+			}))
+		case "/repos/acme/infra/pulls/7/reviews":
+			require.NoError(s.T(), json.NewEncoder(w).Encode([]map[string]any{
+				{"user": map[string]any{"login": "reviewer"}, "state": "APPROVED", "submitted_at": "2026-01-01T00:00:00Z"},
+				{"user": map[string]any{"login": "reviewer"}, "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-02T00:00:00Z"},
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	ok, err := c.PullRequestApproved(context.Background(), "acme/infra", 7)
+	require.NoError(s.T(), err)
+	require.False(s.T(), ok)
+}
+
+func TestApprovedByOtherIgnoresDismissedAndAuthor(t *testing.T) {
+	at := func(day int) time.Time {
+		return time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC)
+	}
+	require.False(t, approvedByOther("author", []pullReview{
+		review("author", "APPROVED", at(1)),
+		review("reviewer", "APPROVED", at(2)),
+		review("reviewer", "DISMISSED", at(3)),
+	}))
+	require.True(t, approvedByOther("author", []pullReview{
+		review("reviewer", "DISMISSED", at(1)),
+		review("reviewer", "APPROVED", at(2)),
+		review("other", "CHANGES_REQUESTED", at(3)),
+	}))
+}
+
+func review(login, state string, at time.Time) pullReview {
+	var item pullReview
+	item.User.Login = login
+	item.State = state
+	item.SubmittedAt = at
+	return item
 }
 
 type errReader struct{}

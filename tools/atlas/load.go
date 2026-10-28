@@ -20,6 +20,7 @@ func main() {
 	loader := gormschema.New(dialect)
 	stmts, err := loader.Load(
 		&models.ProjectLock{},
+		&models.PlanStatusLock{},
 		&models.Job{},
 	)
 	if err != nil {

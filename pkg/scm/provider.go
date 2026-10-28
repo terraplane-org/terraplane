@@ -1,6 +1,7 @@
 package scm
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -10,4 +11,7 @@ type Provider interface {
 	Name() string
 	ParseWebhook(r *http.Request) ([]Webhook, error)
 	GetFile(fileName string, revision string, repo string) (string, error)
+	// PullRequestApproved reports whether someone other than the author has
+	// an approval that is still in force.
+	PullRequestApproved(ctx context.Context, repo string, prNumber int) (bool, error)
 }

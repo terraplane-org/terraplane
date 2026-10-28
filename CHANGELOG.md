@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Orchestrator config can post a `terraplane/plan` commit status for the stacks someone planned (`gates`)
+- Orchestrator config can require an approved pull request before apply for selected stacks (`apply_requirements`)
 
 ## [0.4.0] - 2026-09-17
 

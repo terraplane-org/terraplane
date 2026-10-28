@@ -14,6 +14,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/log"
 	"github.com/xyzjace/terraplane/pkg/orchestrator/services"
+	"github.com/xyzjace/terraplane/pkg/orchestratorconfig"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/mock_scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
@@ -41,10 +42,19 @@ func (s *JobServiceSuite) SetupTest() {
 	s.publisher = mock_scm.NewMockPublisher(s.ctrl)
 	s.jobs = mock_repository.NewMockJobRepository(s.ctrl)
 	s.locks = mock_repository.NewMockLockRepository(s.ctrl)
-	s.svc = services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{
+	s.jobs.EXPECT().WithTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(ctx)
+		},
+	).AnyTimes()
+	s.svc = s.newService(nil)
+}
+
+func (s *JobServiceSuite) newService(repoConfig *orchestratorconfig.ConfigFile) services.JobService {
+	return services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{
 		OrchestratorJobLease:           time.Minute,
 		OrchestratorJobCleanupInterval: 30 * 24 * time.Hour,
-	})
+	}, repoConfig)
 }
 
 func webhook(comment string) *scm.Webhook {
@@ -77,6 +87,14 @@ func (s *JobServiceSuite) expectUpsert(stack, dir, action, agent, jobID string) 
 		payload,
 		agent,
 	).Return(&models.Job{ID: jobID}, nil)
+}
+
+func (s *JobServiceSuite) expectPlanStatusLock(repo, sha string) {
+	s.jobs.EXPECT().WithPlanStatusLock(gomock.Any(), repo, sha, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _, _ string, fn func(context.Context) error) error {
+			return fn(ctx)
+		},
+	)
 }
 
 func (s *JobServiceSuite) expectLockCreate(stack, dir string, err error) {
@@ -211,6 +229,223 @@ environments:
 	require.NoError(s.T(), err)
 }
 
+func planGateConfig(t *testing.T, requirements string) *orchestratorconfig.ConfigFile {
+	t.Helper()
+	body := `
+agents:
+  agent-a:
+    token_env: TOKEN_A
+repos:
+  - repo: acme/infra
+    gates:
+      - type: plan
+`
+	if requirements != "" {
+		body += "    apply_requirements:\n" + requirements
+	}
+	body += `
+    environments:
+      - name: default
+        agent: agent-a
+        stacks:
+          - name: placeholder
+            dir: stacks/placeholder
+`
+	cfg, err := orchestratorconfig.ParseConfigFile([]byte(body))
+	require.NoError(t, err)
+	return cfg
+}
+
+func (s *JobServiceSuite) TestPlanPublishesChecksWhenGateEnabled() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	wh := webhook("terraplane plan -s a")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        "acme/infra",
+		SHA:         "abc123",
+		Key:         scm.PlanStackCheckKey("a"),
+		State:       scm.CheckPending,
+		Description: "planning",
+	}).Return(nil)
+	s.expectPlanStatusLock("acme/infra", "abc123")
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return([]*models.Job{
+		{StackName: "a", CommitSHA: "abc123", Action: models.JobActionPlan, Status: models.JobStatusPending},
+	}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        "acme/infra",
+		SHA:         "abc123",
+		Key:         scm.PlanRollupCheckKey(),
+		State:       scm.CheckPending,
+		Description: "0/1 plans complete",
+	}).Return(nil)
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestPlanPublishesChecksAfterEveryStackIsSaved() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	wh := webhook("terraplane plan")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(`
+environments:
+  - name: default
+    stacks:
+      - name: a
+        agent: agent-a
+        dir: stacks/a
+      - name: b
+        agent: agent-a
+        dir: stacks/b
+`, nil)
+	gomock.InOrder(
+		s.jobs.EXPECT().UpsertPendingJob(gomock.Any(), "acme/infra", 42, "a", "plan", gomock.Any(), "agent-a").Return(&models.Job{ID: "job-a"}, nil),
+		s.jobs.EXPECT().UpsertPendingJob(gomock.Any(), "acme/infra", 42, "b", "plan", gomock.Any(), "agent-a").Return(&models.Job{ID: "job-b"}, nil),
+		s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+			Repo: "acme/infra", SHA: "abc123", Key: scm.PlanStackCheckKey("a"), State: scm.CheckPending, Description: "planning",
+		}).Return(nil),
+		s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+			Repo: "acme/infra", SHA: "abc123", Key: scm.PlanStackCheckKey("b"), State: scm.CheckPending, Description: "planning",
+		}).Return(nil),
+	)
+	s.expectPlanStatusLock("acme/infra", "abc123")
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return([]*models.Job{
+		{StackName: "a", CommitSHA: "abc123", Action: models.JobActionPlan, Status: models.JobStatusPending},
+		{StackName: "b", CommitSHA: "abc123", Action: models.JobActionPlan, Status: models.JobStatusPending},
+	}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo: "acme/infra", SHA: "abc123", Key: scm.PlanRollupCheckKey(), State: scm.CheckPending, Description: "0/2 plans complete",
+	}).Return(nil)
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestPlanUpsertFailureDoesNotPublish() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	wh := webhook("terraplane plan")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.jobs.EXPECT().UpsertPendingJob(gomock.Any(), "acme/infra", 42, "a", "plan", gomock.Any(), "agent-a").Return(&models.Job{ID: "job-a"}, nil)
+	s.jobs.EXPECT().UpsertPendingJob(gomock.Any(), "acme/infra", 42, "b", "plan", gomock.Any(), "agent-b").Return(nil, errors.New("db down"))
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to upsert pending job")
+}
+
+func (s *JobServiceSuite) TestPlanCheckPublishFailureIsBestEffort() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	wh := webhook("terraplane plan -s a")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectUpsert("a", "stacks/a", "plan", "agent-a", "job-a")
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), gomock.Any()).Return(errors.New("github down"))
+	s.expectPlanStatusLock("acme/infra", "abc123")
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), "acme/infra", 42, models.JobActionPlan).Return(nil, errors.New("db"))
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultPublishesPlanCheck() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(7, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       scm.CheckSuccess,
+		Description: "plan succeeded",
+	}).Return(nil)
+	s.expectPlanStatusLock(job.Repo, job.CommitSHA)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), job.Repo, int(job.PRNumber), models.JobActionPlan).Return([]*models.Job{job}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanRollupCheckKey(),
+		State:       scm.CheckSuccess,
+		Description: "1/1 plans succeeded",
+	}).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultEmptySHASkipsPlanChecks() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	job := resultJob(models.JobActionPlan)
+	job.CommitSHA = ""
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(7, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultSkipsRollupWhenNoPlansMatchSHA() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(7, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       scm.CheckSuccess,
+		Description: "plan succeeded",
+	}).Return(nil)
+	s.expectPlanStatusLock(job.Repo, job.CommitSHA)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), job.Repo, int(job.PRNumber), models.JobActionPlan).Return([]*models.Job{
+		{StackName: "a", CommitSHA: "other", Action: models.JobActionPlan, Status: models.JobStatusSucceeded},
+	}, nil)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", "plan out", ""))
+}
+
+func (s *JobServiceSuite) TestApplySkipsUnapprovedStack() {
+	s.svc = s.newService(planGateConfig(s.T(), "      - type: approved\n        environments: [production]\n"))
+	wh := webhook("terraplane apply -s c")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoEnvYAML, nil)
+	s.scm.EXPECT().PullRequestApproved(gomock.Any(), "acme/infra", 42).Return(false, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), "acme/infra", 42, `Pull request must be approved before applying stack "c".`).Return(1, nil)
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestApplyBlockedCommentFailureIsBestEffort() {
+	s.svc = s.newService(planGateConfig(s.T(), "      - type: approved\n        environments: [production]\n"))
+	wh := webhook("terraplane apply -s c")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoEnvYAML, nil)
+	s.scm.EXPECT().PullRequestApproved(gomock.Any(), "acme/infra", 42).Return(false, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), "acme/infra", 42, `Pull request must be approved before applying stack "c".`).Return(0, errors.New("github down"))
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestApplyProceedsWhenApproved() {
+	s.svc = s.newService(planGateConfig(s.T(), "      - type: approved\n        environments: [production]\n"))
+	wh := webhook("terraplane apply -s c")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoEnvYAML, nil)
+	s.scm.EXPECT().PullRequestApproved(gomock.Any(), "acme/infra", 42).Return(true, nil)
+	s.expectLockCreate("c", "stacks/c", nil)
+	s.expectUpsert("c", "stacks/c", "apply", "agent-prod", "job-c")
+
+	require.NoError(s.T(), s.svc.CreatePendingJobs(context.Background(), wh))
+}
+
+func (s *JobServiceSuite) TestApplyApprovalLookupFailure() {
+	s.svc = s.newService(planGateConfig(s.T(), "      - type: approved\n        environments: [production]\n"))
+	wh := webhook("terraplane apply -s c")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoEnvYAML, nil)
+	s.scm.EXPECT().PullRequestApproved(gomock.Any(), "acme/infra", 42).Return(false, errors.New("github down"))
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to check pull request approval")
+}
+
 func (s *JobServiceSuite) TestApplyCreatesLockThenUpserts() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
@@ -297,6 +532,12 @@ func (s *JobServiceSuite) TestUpsertFailureAbortsRemainingStacks() {
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to upsert pending job")
+}
+
+func failedPlanJob() *models.Job {
+	job := claimedJob(models.JobActionPlan, `{}`)
+	job.Status = models.JobStatusFailed
+	return job
 }
 
 func claimedJob(action models.JobAction, payload string) *models.Job {
@@ -400,6 +641,7 @@ func (s *JobServiceSuite) TestClaimPendingJobPayloadNonStringFields() {
 func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadMarksFailed() {
 	s.expectClaim(claimedJob(models.JobActionPlan, "{"), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(failedPlanJob(), nil)
 
 	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
@@ -421,6 +663,7 @@ func (s *JobServiceSuite) TestClaimPendingJobInvalidPayloadFailErrorIsWrapped() 
 func (s *JobServiceSuite) TestClaimPendingJobUnknownActionMarksFailed() {
 	s.expectClaim(claimedJob(models.JobAction("nope"), `{}`), nil)
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", gomock.Any()).Return(nil)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(failedPlanJob(), nil)
 
 	cmd, err := s.svc.ClaimPendingJob(context.Background(), "agent-a")
 	require.Error(s.T(), err)
@@ -441,6 +684,38 @@ func (s *JobServiceSuite) TestReleaseClaimError() {
 
 func (s *JobServiceSuite) TestFailClaimedJob() {
 	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", "nope").Return(nil)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(failedPlanJob(), nil)
+	require.NoError(s.T(), s.svc.FailClaimedJob(context.Background(), "job-1", "nope"))
+}
+
+func (s *JobServiceSuite) TestFailClaimedJobLoadErrorIsBestEffort() {
+	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", "nope").Return(nil)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(nil, errors.New("db"))
+	require.NoError(s.T(), s.svc.FailClaimedJob(context.Background(), "job-1", "nope"))
+}
+
+func (s *JobServiceSuite) TestFailClaimedPlanPublishesFailure() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	job := failedPlanJob()
+	s.jobs.EXPECT().FailClaimedJob(gomock.Any(), "job-1", "nope").Return(nil)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       scm.CheckFailure,
+		Description: "plan failed",
+	}).Return(nil)
+	s.expectPlanStatusLock(job.Repo, job.CommitSHA)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), job.Repo, int(job.PRNumber), models.JobActionPlan).Return([]*models.Job{job}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanRollupCheckKey(),
+		State:       scm.CheckFailure,
+		Description: "1/1 plans failed",
+	}).Return(nil)
+
 	require.NoError(s.T(), s.svc.FailClaimedJob(context.Background(), "job-1", "nope"))
 }
 
@@ -485,6 +760,41 @@ func (s *JobServiceSuite) TestReapExpiredClaimsRunningPlanDoesNotReleaseLock() {
 	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
 }
 
+func (s *JobServiceSuite) TestReapExpiredClaimsRunningPlanPublishesFailure() {
+	s.svc = s.newService(planGateConfig(s.T(), ""))
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		RunningFailed: []*models.Job{job},
+	}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       scm.CheckFailure,
+		Description: "plan failed",
+	}).Return(nil)
+	s.expectPlanStatusLock(job.Repo, job.CommitSHA)
+	s.jobs.EXPECT().ListByRepoPRAction(gomock.Any(), job.Repo, int(job.PRNumber), models.JobActionPlan).Return([]*models.Job{job}, nil)
+	s.publisher.EXPECT().UpsertCheck(gomock.Any(), scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanRollupCheckKey(),
+		State:       scm.CheckFailure,
+		Description: "1/1 plans failed",
+	}).Return(nil)
+
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+	require.Equal(s.T(), models.JobStatusFailed, job.Status)
+}
+
+func (s *JobServiceSuite) TestReapExpiredClaimsSkipsNilJob() {
+	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(&repository.ReapExpiredClaimsResult{
+		RunningFailed: []*models.Job{nil},
+	}, nil)
+
+	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
+}
+
 func (s *JobServiceSuite) TestReapExpiredClaimsNilResult() {
 	s.jobs.EXPECT().ReapExpiredClaims(gomock.Any(), gomock.Any()).Return(nil, nil)
 	require.NoError(s.T(), s.svc.ReapExpiredClaims(context.Background()))
@@ -521,7 +831,7 @@ func (s *JobServiceSuite) TestCleanupExpiredJobsError() {
 func (s *JobServiceSuite) TestCleanupExpiredJobsDisabledWhenIntervalZero() {
 	svc := services.NewJobService(log.Noop(), s.jobs, s.locks, s.scm, s.publisher, &config.Config{
 		OrchestratorJobCleanupInterval: 0,
-	})
+	}, nil)
 	require.NoError(s.T(), svc.CleanupExpiredJobs(context.Background()))
 }
 

@@ -15,8 +15,24 @@ import (
 
 const leaseExpiredRunningMsg = "lease expired while job was running"
 
+type jobTxKey struct{}
+
 type jobRepository struct {
 	db *DB
+}
+
+func txFromContext(ctx context.Context) *gorm.DB {
+	tx, _ := ctx.Value(jobTxKey{}).(*gorm.DB)
+	return tx
+}
+
+func (r *jobRepository) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if txFromContext(ctx) != nil {
+		return fn(ctx)
+	}
+	return r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(context.WithValue(ctx, jobTxKey{}, tx))
+	})
 }
 
 func NewJobRepository(db *DB) repository.JobRepository {
@@ -33,48 +49,65 @@ func (r *jobRepository) UpsertPendingJob(ctx context.Context, repo string, prNum
 		return nil, err
 	}
 
-	var job models.Job
-	err = r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where(
-				"repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?",
-				repo, prNumber, stackName, action, models.JobStatusPending,
-			).
-			Limit(1).
-			Find(&job)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			job = models.Job{
-				ID:        uuid.NewString(),
-				Repo:      repo,
-				PRNumber:  int32(prNumber),
-				StackName: stackName,
-				Dir:       stringFromPayload(payload, "dir"),
-				CommitSHA: stringFromPayload(payload, "commit_sha"),
-				AgentID:   agent,
-				Action:    models.JobAction(action),
-				Payload:   payloadJSON,
-				Status:    models.JobStatusPending,
-			}
-			return tx.Create(&job).Error
-		}
+	if tx := txFromContext(ctx); tx != nil {
+		return r.upsertPendingJob(tx, repo, prNumber, stackName, action, payload, payloadJSON, agent)
+	}
 
-		job.AgentID = agent
-		job.Payload = payloadJSON
-		if dir := stringFromPayload(payload, "dir"); dir != "" {
-			job.Dir = dir
-		}
-		if sha := stringFromPayload(payload, "commit_sha"); sha != "" {
-			job.CommitSHA = sha
-		}
-		job.Output = ""
-		job.ErrorMsg = ""
-		job.LeaseExpiresAt = nil
-		return tx.Save(&job).Error
+	var job *models.Job
+	err = r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var inner error
+		job, inner = r.upsertPendingJob(tx, repo, prNumber, stackName, action, payload, payloadJSON, agent)
+		return inner
 	})
 	if err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+func (r *jobRepository) upsertPendingJob(tx *gorm.DB, repo string, prNumber int, stackName string, action string, payload map[string]interface{}, payloadJSON, agent string) (*models.Job, error) {
+	var job models.Job
+	result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where(
+			"repo = ? AND pr_number = ? AND stack_name = ? AND action = ? AND status = ?",
+			repo, prNumber, stackName, action, models.JobStatusPending,
+		).
+		Limit(1).
+		Find(&job)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		job = models.Job{
+			ID:        uuid.NewString(),
+			Repo:      repo,
+			PRNumber:  int32(prNumber),
+			StackName: stackName,
+			Dir:       stringFromPayload(payload, "dir"),
+			CommitSHA: stringFromPayload(payload, "commit_sha"),
+			AgentID:   agent,
+			Action:    models.JobAction(action),
+			Payload:   payloadJSON,
+			Status:    models.JobStatusPending,
+		}
+		if err := tx.Create(&job).Error; err != nil {
+			return nil, err
+		}
+		return &job, nil
+	}
+
+	job.AgentID = agent
+	job.Payload = payloadJSON
+	if dir := stringFromPayload(payload, "dir"); dir != "" {
+		job.Dir = dir
+	}
+	if sha := stringFromPayload(payload, "commit_sha"); sha != "" {
+		job.CommitSHA = sha
+	}
+	job.Output = ""
+	job.ErrorMsg = ""
+	job.LeaseExpiresAt = nil
+	if err := tx.Save(&job).Error; err != nil {
 		return nil, err
 	}
 	return &job, nil
@@ -228,6 +261,39 @@ func (r *jobRepository) RefreshAgentClaims(ctx context.Context, agentID string, 
 			[]models.JobStatus{models.JobStatusClaimed, models.JobStatusRunning},
 		).
 		Update("lease_expires_at", leaseExpiresAt).Error
+}
+
+func (r *jobRepository) WithPlanStatusLock(ctx context.Context, repo, sha string, fn func(ctx context.Context) error) error {
+	return r.db.pool.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.PlanStatusLock{
+			Repo: repo,
+			SHA:  sha,
+		}).Error
+		if err != nil {
+			return err
+		}
+		// Updating the row locks it until this transaction ends. Postgres and
+		// MySQL lock that row. The GitHub post runs before the transaction
+		// commits, so a second orchestrator cannot post an older snapshot after it.
+		err = tx.Model(&models.PlanStatusLock{}).
+			Where("repo = ? AND sha = ?", repo, sha).
+			Update("updated_at", time.Now().UTC()).Error
+		if err != nil {
+			return err
+		}
+		return fn(ctx)
+	})
+}
+
+func (r *jobRepository) ListByRepoPRAction(ctx context.Context, repo string, prNumber int, action models.JobAction) ([]*models.Job, error) {
+	var jobs []*models.Job
+	err := r.db.pool.WithContext(ctx).
+		Where("repo = ? AND pr_number = ? AND action = ?", repo, prNumber, action).
+		Find(&jobs).Error
+	if err != nil {
+		return nil, err
+	}
+	return jobs, nil
 }
 
 func (r *jobRepository) Update(ctx context.Context, job *models.Job) error {

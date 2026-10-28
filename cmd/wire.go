@@ -34,6 +34,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 		webserver.NewHandler,
 		webserver.NewServer,
 		orchestrator.NewManager,
+		loadOrchestratorConfig,
 		services.NewJobService,
 		services.NewUnlockService,
 		orchestrator.NewDispatcher,

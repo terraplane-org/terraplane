@@ -9,6 +9,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/scm/github/mock_github"
 )
 
@@ -40,6 +41,21 @@ func TestPublisherWriteCommentPropagatesError(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 0, id)
 	require.Contains(t, err.Error(), "api down")
+}
+
+func TestPublisherUpsertCheck(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mock_github.NewMockClient(ctrl)
+	client.EXPECT().SetCommitStatus(gomock.Any(), "acme/infra", "abc123", "pending", "terraplane/plan: a", "planning").Return(nil)
+
+	pub := NewPublisher(log.Noop(), client)
+	require.NoError(t, pub.UpsertCheck(context.Background(), scm.Check{
+		Repo:        "acme/infra",
+		SHA:         "abc123",
+		Key:         scm.PlanStackCheckKey("a"),
+		State:       scm.CheckPending,
+		Description: "planning",
+	}))
 }
 
 func TestPublisherAcknowledgeCommentSuccess(t *testing.T) {
