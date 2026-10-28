@@ -25,11 +25,37 @@ type Agent struct {
 	TokenEnv string `yaml:"token_env"`
 }
 
+const (
+	gateTypePlan            = "plan"
+	requirementTypeApproved = "approved"
+)
+
+// Gate is a status Terraplane posts on the pull request commit.
+// The git host can require that status before a merge.
+type Gate struct {
+	Type string `yaml:"type"`
+}
+
+// ApplyRequirement is a check Terraplane makes before it starts apply
+// for stacks selected by environment, stack name, or tag.
+type ApplyRequirement struct {
+	Type         string   `yaml:"type"`
+	Environments []string `yaml:"environments,omitempty"`
+	Stacks       []string `yaml:"stacks,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`
+}
+
 // RepoConfig is a terraplane config for the repos matched by Repo. Repo is a
 // path glob (see path.Match) compared case-insensitively against the
 // owner/name slug; * and ? do not match across /.
+//
+// Gates and apply requirements are server policy. They are not read from
+// terraplane.yaml. Selectors match the terraplane.yaml fetched for the
+// pull request.
 type RepoConfig struct {
-	Repo                        string `yaml:"repo"`
+	Repo                        string             `yaml:"repo"`
+	Gates                       []Gate             `yaml:"gates,omitempty"`
+	ApplyRequirements           []ApplyRequirement `yaml:"apply_requirements,omitempty"`
 	terraplaneconfig.ConfigFile `yaml:",inline"`
 }
 
@@ -92,6 +118,18 @@ func (c *ConfigFile) Validate() error {
 				}
 			}
 		}
+
+		gates, err := normalizeGates(rc.Gates)
+		if err != nil {
+			return fmt.Errorf("repo %q: %w", rc.Repo, err)
+		}
+		c.Repos[i].Gates = gates
+
+		reqs, err := normalizeApplyRequirements(rc.ApplyRequirements)
+		if err != nil {
+			return fmt.Errorf("repo %q: %w", rc.Repo, err)
+		}
+		c.Repos[i].ApplyRequirements = reqs
 
 		stacks, err := rc.ResolveStacks(nil, nil)
 		if err != nil {
@@ -223,6 +261,134 @@ func (c *ConfigFile) ResolveStacks(repo string, stackNames, environmentNames, ta
 		return nil, fmt.Errorf("no stacks match stacks %q, environments %q, tags %q", stackNames, environmentNames, tags)
 	}
 	return resolved, nil
+}
+
+// PlanGateEnabled reports whether repo posts terraplane/plan statuses.
+// A nil config and an unmatched repo report false.
+func (c *ConfigFile) PlanGateEnabled(repo string) bool {
+	if c == nil {
+		return false
+	}
+	matched, err := c.matchRepo(repo)
+	if err != nil {
+		return false
+	}
+	for _, gate := range matched.Gates {
+		if gate.Type == gateTypePlan {
+			return true
+		}
+	}
+	return false
+}
+
+// ApplyRequiresApproval reports whether apply for stack must wait for an
+// approved pull request. A nil config and an unmatched repo report false.
+func (c *ConfigFile) ApplyRequiresApproval(repo string, stack terraplaneconfig.ResolvedStack) bool {
+	if c == nil {
+		return false
+	}
+	matched, err := c.matchRepo(repo)
+	if err != nil {
+		return false
+	}
+	for _, req := range matched.ApplyRequirements {
+		if req.Type == requirementTypeApproved && req.matches(stack) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r ApplyRequirement) matches(stack terraplaneconfig.ResolvedStack) bool {
+	if len(r.Environments) > 0 && !contains(toSet(r.Environments), stack.Environment) {
+		return false
+	}
+	if len(r.Stacks) > 0 && !contains(toSet(r.Stacks), stack.Name) {
+		return false
+	}
+	if len(r.Tags) > 0 && !hasAnyTag(stack.Tags, toSet(r.Tags)) {
+		return false
+	}
+	return true
+}
+
+func normalizeGates(gates []Gate) ([]Gate, error) {
+	if gates == nil {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(gates))
+	out := make([]Gate, len(gates))
+	for i, gate := range gates {
+		gate.Type = strings.TrimSpace(gate.Type)
+		if gate.Type == "" {
+			return nil, fmt.Errorf("gate type is required")
+		}
+		if gate.Type != gateTypePlan {
+			return nil, fmt.Errorf("unknown gate type %q", gate.Type)
+		}
+		if _, ok := seen[gate.Type]; ok {
+			return nil, fmt.Errorf("gate type %q is listed more than once", gate.Type)
+		}
+		seen[gate.Type] = struct{}{}
+		out[i] = gate
+	}
+	return out, nil
+}
+
+func normalizeApplyRequirements(reqs []ApplyRequirement) ([]ApplyRequirement, error) {
+	if reqs == nil {
+		return nil, nil
+	}
+	out := make([]ApplyRequirement, len(reqs))
+	for i, req := range reqs {
+		req.Type = strings.TrimSpace(req.Type)
+		if req.Type == "" {
+			return nil, fmt.Errorf("apply requirement type is required")
+		}
+		if req.Type != requirementTypeApproved {
+			return nil, fmt.Errorf("unknown apply requirement type %q", req.Type)
+		}
+		envs, err := normalizeNames("environment", req.Environments)
+		if err != nil {
+			return nil, err
+		}
+		stacks, err := normalizeNames("stack", req.Stacks)
+		if err != nil {
+			return nil, err
+		}
+		tags, err := normalizeNames("tag", req.Tags)
+		if err != nil {
+			return nil, err
+		}
+		if len(envs)+len(stacks)+len(tags) == 0 {
+			return nil, fmt.Errorf("apply requirement %q must set environments, stacks, or tags", req.Type)
+		}
+		req.Environments = envs
+		req.Stacks = stacks
+		req.Tags = tags
+		out[i] = req
+	}
+	return out, nil
+}
+
+func normalizeNames(kind string, values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s name is required", kind)
+		}
+		if _, ok := seen[value]; ok {
+			return nil, fmt.Errorf("duplicate %s %q", kind, value)
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out, nil
 }
 
 // matchRepo returns the first repo whose pattern matches the slug,

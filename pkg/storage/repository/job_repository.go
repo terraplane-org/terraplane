@@ -23,6 +23,7 @@ type JobRepository interface {
 	DeleteByRepoPRAndStacks(ctx context.Context, repo string, prNumber int, stackNames []string) (int, error)
 	RefreshAgentClaims(ctx context.Context, agentID string, leaseExpiresAt *time.Time) error
 	CleanupExpiredJobs(ctx context.Context, cutoff time.Time) (int, error)
+	ListByRepoPRAction(ctx context.Context, repo string, prNumber int, action models.JobAction) ([]*models.Job, error)
 }
 
 // ReapExpiredClaimsResult summarizes jobs affected by ReapExpiredClaims.

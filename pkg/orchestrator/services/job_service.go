@@ -12,6 +12,7 @@ import (
 	"github.com/xyzjace/terraplane/pkg/command"
 	"github.com/xyzjace/terraplane/pkg/feedback"
 	"github.com/xyzjace/terraplane/pkg/log"
+	"github.com/xyzjace/terraplane/pkg/orchestratorconfig"
 	"github.com/xyzjace/terraplane/pkg/scm"
 	"github.com/xyzjace/terraplane/pkg/storage/models"
 	"github.com/xyzjace/terraplane/pkg/storage/repository"
@@ -39,6 +40,7 @@ type jobService struct {
 	lockRepository     repository.LockRepository
 	scmProvider        scm.Provider
 	scmPublisher       scm.Publisher
+	repoConfig         *orchestratorconfig.ConfigFile
 	jobLease           time.Duration
 	jobCleanupInterval time.Duration
 }
@@ -50,6 +52,7 @@ func NewJobService(
 	scmProvider scm.Provider,
 	scmPublisher scm.Publisher,
 	config *config.Config,
+	repoConfig *orchestratorconfig.ConfigFile,
 ) JobService {
 	return &jobService{
 		logger:             logger,
@@ -57,6 +60,7 @@ func NewJobService(
 		lockRepository:     lockRepository,
 		scmProvider:        scmProvider,
 		scmPublisher:       scmPublisher,
+		repoConfig:         repoConfig,
 		jobLease:           config.OrchestratorJobLease,
 		jobCleanupInterval: config.OrchestratorJobCleanupInterval,
 	}
@@ -96,7 +100,23 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 	}
 
+	var approved *bool
+	publishedPlan := false
 	for _, stack := range resolvedStacks {
+		if action == string(models.JobActionApply) && j.repoConfig.ApplyRequiresApproval(webhook.RepositorySlug, stack) {
+			if approved == nil {
+				ok, err := j.scmProvider.PullRequestApproved(ctx, webhook.RepositorySlug, webhook.PRNumber)
+				if err != nil {
+					return fmt.Errorf("failed to check pull request approval for repository %s PR #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
+				}
+				approved = &ok
+			}
+			if !*approved {
+				j.commentApplyBlocked(ctx, webhook, stack.Name)
+				continue
+			}
+		}
+
 		if action == string(models.JobActionApply) {
 			ok, err := j.acquireApplyLock(ctx, webhook, stack)
 			if err != nil {
@@ -139,9 +159,100 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 			"agent", stack.Agent,
 			"job_id", job.ID,
 		)
+
+		if action == string(models.JobActionPlan) && j.repoConfig.PlanGateEnabled(webhook.RepositorySlug) {
+			fillPlanJob(job, webhook, stack)
+			j.publishPlanCheck(ctx, job)
+			publishedPlan = true
+		}
+	}
+
+	if publishedPlan {
+		j.refreshPlanRollup(ctx, webhook.RepositorySlug, webhook.PRNumber, webhook.CommitSHA)
 	}
 
 	return nil
+}
+
+func fillPlanJob(job *models.Job, webhook *scm.Webhook, stack terraplaneconfig.ResolvedStack) {
+	if job.Repo == "" {
+		job.Repo = webhook.RepositorySlug
+	}
+	if job.CommitSHA == "" {
+		job.CommitSHA = webhook.CommitSHA
+	}
+	if job.StackName == "" {
+		job.StackName = stack.Name
+	}
+	if job.PRNumber == 0 {
+		job.PRNumber = int32(webhook.PRNumber)
+	}
+	if job.Status == "" {
+		job.Status = models.JobStatusPending
+	}
+	if job.Action == "" {
+		job.Action = models.JobActionPlan
+	}
+}
+
+func (j *jobService) commentApplyBlocked(ctx context.Context, webhook *scm.Webhook, stack string) {
+	body := fmt.Sprintf("Pull request must be approved before applying stack %q.", stack)
+	if _, err := j.scmPublisher.WriteComment(ctx, webhook.RepositorySlug, webhook.PRNumber, body); err != nil {
+		j.logger.Error(
+			"Failed to write apply approval comment",
+			"repo", webhook.RepositorySlug,
+			"pr", webhook.PRNumber,
+			"stack", stack,
+			"error", err,
+		)
+	}
+}
+
+func (j *jobService) publishPlanCheck(ctx context.Context, job *models.Job) {
+	if job.CommitSHA == "" {
+		return
+	}
+	err := j.scmPublisher.UpsertCheck(ctx, scm.Check{
+		Repo:        job.Repo,
+		SHA:         job.CommitSHA,
+		Key:         scm.PlanStackCheckKey(job.StackName),
+		State:       planCheckState(job),
+		Description: planCheckDescription(job),
+	})
+	if err != nil {
+		j.logger.Error(
+			"Failed to publish plan check",
+			"job_id", job.ID,
+			"repo", job.Repo,
+			"stack", job.StackName,
+			"error", err,
+		)
+	}
+}
+
+func (j *jobService) refreshPlanRollup(ctx context.Context, repo string, prNumber int, sha string) {
+	if sha == "" {
+		return
+	}
+	jobs, err := j.jobRepository.ListByRepoPRAction(ctx, repo, prNumber, models.JobActionPlan)
+	if err != nil {
+		j.logger.Error("Failed to list plan jobs for check rollup", "repo", repo, "pr", prNumber, "error", err)
+		return
+	}
+	latest := latestPlanJobsForSHA(jobs, sha)
+	if len(latest) == 0 {
+		return
+	}
+	state, desc := planRollup(latest)
+	if err := j.scmPublisher.UpsertCheck(ctx, scm.Check{
+		Repo:        repo,
+		SHA:         sha,
+		Key:         scm.PlanRollupCheckKey(),
+		State:       state,
+		Description: desc,
+	}); err != nil {
+		j.logger.Error("Failed to publish plan rollup check", "repo", repo, "pr", prNumber, "error", err)
+	}
 }
 
 func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook, stack terraplaneconfig.ResolvedStack) (bool, error) {
@@ -318,6 +429,11 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 
 	comment := feedback.JobResultComment(job, job.Status, output, errMsg)
 	j.publishResultComment(ctx, job, comment)
+
+	if job.Action == models.JobActionPlan && j.repoConfig.PlanGateEnabled(job.Repo) {
+		j.publishPlanCheck(ctx, job)
+		j.refreshPlanRollup(ctx, job.Repo, int(job.PRNumber), job.CommitSHA)
+	}
 	return nil
 }
 

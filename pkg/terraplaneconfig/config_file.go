@@ -36,6 +36,12 @@ type ResolvedStack struct {
 }
 
 func ParseConfigFile(data []byte) (*ConfigFile, error) {
+	if key, err := serverPolicyKey(data); err != nil {
+		return nil, fmt.Errorf("parse terraplane config: %w", err)
+	} else if key != "" {
+		return nil, fmt.Errorf("terraplane.yaml must not set %q; set it in the orchestrator config", key)
+	}
+
 	var cfg ConfigFile
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse terraplane config: %w", err)
@@ -44,6 +50,41 @@ func ParseConfigFile(data []byte) (*ConfigFile, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// serverPolicyKey reports a gates or apply_requirements key anywhere in the
+// document. Those settings belong in the orchestrator config.
+func serverPolicyKey(data []byte) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return "", err
+	}
+	return findPolicyKey(&doc), nil
+}
+
+func findPolicyKey(n *yaml.Node) string {
+	if n == nil {
+		return ""
+	}
+	switch n.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range n.Content {
+			if key := findPolicyKey(child); key != "" {
+				return key
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key := n.Content[i].Value
+			if key == "gates" || key == "apply_requirements" {
+				return key
+			}
+			if found := findPolicyKey(n.Content[i+1]); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 // Validate checks structural rules: unique stack names, required fields, and

@@ -391,6 +391,18 @@ func TestCleanupExpiredJobsDeletesOldTerminalJobsOnly(t *testing.T) {
 	require.Equal(t, oldPending.ID, getJob(t, repo, oldPending.ID).ID)
 }
 
+func TestListByRepoPRAction(t *testing.T) {
+	repo := testJobRepo(t)
+	plan := createJob(t, repo, &models.Job{StackName: "a", PRNumber: 42, Action: models.JobActionPlan})
+	createJob(t, repo, &models.Job{StackName: "b", PRNumber: 42, Action: models.JobActionApply})
+	createJob(t, repo, &models.Job{StackName: "c", PRNumber: 7, Action: models.JobActionPlan})
+
+	got, err := repo.ListByRepoPRAction(context.Background(), "acme/infra", 42, models.JobActionPlan)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, plan.ID, got[0].ID)
+}
+
 func TestCleanupExpiredJobsNone(t *testing.T) {
 	repo := testJobRepo(t)
 	createJob(t, repo, &models.Job{Status: models.JobStatusSucceeded})

@@ -80,6 +80,34 @@ environments:
 		require.Contains(t, err.Error(), "parse terraplane config")
 	})
 
+	t.Run("server policy keys are rejected", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+gates:
+  - type: plan
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `must not set "gates"`)
+
+		_, err = terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    apply_requirements:
+      - type: approved
+    stacks:
+      - name: a
+        dir: stacks/a
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `must not set "apply_requirements"`)
+	})
+
 	t.Run("empty document fails validation", func(t *testing.T) {
 		cfg, err := terraplaneconfig.ParseConfigFile([]byte(""))
 		require.Error(t, err)

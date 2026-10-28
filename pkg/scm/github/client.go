@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/xyzjace/terraplane/config"
 )
@@ -22,6 +24,8 @@ type Client interface {
 	WriteComment(ctx context.Context, repo string, prNumber int, body string) (int, error)
 	UpdateComment(ctx context.Context, repo string, prNumber int, body string, commentID int) error
 	ReactToComment(ctx context.Context, repo string, commentID int, reaction string) error
+	SetCommitStatus(ctx context.Context, repo, sha, state, contextName, description string) error
+	PullRequestApproved(ctx context.Context, repo string, prNumber int) (bool, error)
 }
 
 type client struct {
@@ -196,6 +200,144 @@ func (c *client) UpdateComment(ctx context.Context, repo string, prNumber int, b
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
+}
+
+func (c *client) SetCommitStatus(ctx context.Context, repo, sha, state, contextName, description string) error {
+	description = truncateRunes(description, 140)
+	u := fmt.Sprintf("%s/repos/%s/statuses/%s", c.apiURL, repo, sha)
+	payloadBytes, err := json.Marshal(map[string]string{
+		"state":       state,
+		"context":     contextName,
+		"description": description,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal commit status for repository %s sha %s: %w", repo, sha, err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, u, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return err
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute GitHub API request to set commit status for repository %s sha %s: %w", repo, sha, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("GitHub API request to set commit status for repository %s sha %s returned unexpected status %s: %s", repo, sha, res.Status, strings.TrimSpace(string(respBody)))
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
+}
+
+func (c *client) PullRequestApproved(ctx context.Context, repo string, prNumber int) (bool, error) {
+	author, err := c.pullRequestAuthor(ctx, repo, prNumber)
+	if err != nil {
+		return false, err
+	}
+	reviews, err := c.listPullRequestReviews(ctx, repo, prNumber)
+	if err != nil {
+		return false, err
+	}
+	return approvedByOther(author, reviews), nil
+}
+
+func (c *client) pullRequestAuthor(ctx context.Context, repo string, prNumber int) (string, error) {
+	u := fmt.Sprintf("%s/repos/%s/pulls/%d", c.apiURL, repo, prNumber)
+	var resp struct {
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := c.getJSON(ctx, u, &resp); err != nil {
+		return "", fmt.Errorf("failed to fetch pull request author for repository %s PR #%d: %w", repo, prNumber, err)
+	}
+	if strings.TrimSpace(resp.User.Login) == "" {
+		return "", fmt.Errorf("GitHub returned an empty author for repository %s PR #%d", repo, prNumber)
+	}
+	return resp.User.Login, nil
+}
+
+func (c *client) listPullRequestReviews(ctx context.Context, repo string, prNumber int) ([]pullReview, error) {
+	var all []pullReview
+	for page := 1; page <= 20; page++ {
+		u := fmt.Sprintf("%s/repos/%s/pulls/%d/reviews?per_page=100&page=%d", c.apiURL, repo, prNumber, page)
+		var batch []pullReview
+		if err := c.getJSON(ctx, u, &batch); err != nil {
+			return nil, fmt.Errorf("failed to list pull request reviews for repository %s PR #%d: %w", repo, prNumber, err)
+		}
+		all = append(all, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+type pullReview struct {
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	State       string    `json:"state"`
+	SubmittedAt time.Time `json:"submitted_at"`
+}
+
+// approvedByOther reports whether a reviewer other than the author still has
+// an approval. The latest APPROVED, CHANGES_REQUESTED, or DISMISSED review
+// from each reviewer is the one that counts. Comments do not change it.
+func approvedByOther(author string, reviews []pullReview) bool {
+	type decision struct {
+		at     time.Time
+		index  int
+		status string
+	}
+	latest := make(map[string]decision)
+	for i, review := range reviews {
+		login := strings.TrimSpace(review.User.Login)
+		if login == "" || strings.EqualFold(login, author) {
+			continue
+		}
+		var status string
+		switch review.State {
+		case "APPROVED":
+			status = "approved"
+		case "CHANGES_REQUESTED":
+			status = "rejected"
+		case "DISMISSED":
+			status = "dismissed"
+		default:
+			continue
+		}
+		key := strings.ToLower(login)
+		prev, ok := latest[key]
+		if ok && (review.SubmittedAt.Before(prev.at) || (review.SubmittedAt.Equal(prev.at) && i < prev.index)) {
+			continue
+		}
+		latest[key] = decision{at: review.SubmittedAt, index: i, status: status}
+	}
+	for _, item := range latest {
+		if item.status == "approved" {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	i := 0
+	for j := range s {
+		if i == n {
+			return s[:j]
+		}
+		i++
+	}
+	return s
 }
 
 func appendRefQuery(u, ref string) (string, error) {
