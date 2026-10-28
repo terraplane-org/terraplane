@@ -15,6 +15,9 @@ environments:
       - name: a
         dir: stacks/a
         tool_version: "1.9.0"
+        tags:
+          - foundation
+          - " padded "
       - name: b
         agent: agent-special
         dir: stacks/b
@@ -34,7 +37,40 @@ func TestParseConfigFile(t *testing.T) {
 		require.Equal(t, "agent-dev", cfg.Environments[0].Agent)
 		require.Equal(t, "a", cfg.Environments[0].Stacks[0].Name)
 		require.Equal(t, "1.9.0", cfg.Environments[0].Stacks[0].ToolVersion)
+		require.Equal(t, []string{"foundation", " padded "}, cfg.Environments[0].Stacks[0].Tags)
 		require.Equal(t, "agent-special", cfg.Environments[0].Stacks[1].Agent)
+		require.Nil(t, cfg.Environments[0].Stacks[1].Tags)
+	})
+
+	t.Run("empty tag", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+        tags:
+          - " "
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `stack "a" in environment "staging" has an empty tag`)
+	})
+
+	t.Run("duplicate tag", func(t *testing.T) {
+		_, err := terraplaneconfig.ParseConfigFile([]byte(`
+environments:
+  - name: staging
+    agent: agent-dev
+    stacks:
+      - name: a
+        dir: stacks/a
+        tags:
+          - foundation
+          - "foundation "
+`))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `stack "a" in environment "staging" has duplicate tag "foundation"`)
 	})
 
 	t.Run("invalid yaml", func(t *testing.T) {
@@ -170,6 +206,8 @@ func TestResolveStacks(t *testing.T) {
 		require.Equal(t, "agent-prod", got[2].Agent)
 		require.Equal(t, "1.9.0", got[0].ToolVersion)
 		require.Empty(t, got[1].ToolVersion)
+		require.Equal(t, []string{"foundation", "padded"}, got[0].Tags)
+		require.Nil(t, got[1].Tags)
 	})
 
 	t.Run("by environment", func(t *testing.T) {
