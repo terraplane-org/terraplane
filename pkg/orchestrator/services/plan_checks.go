@@ -14,7 +14,7 @@ func latestPlanJobsForSHA(jobs []*models.Job, sha string) []*models.Job {
 			continue
 		}
 		prev, ok := latest[job.StackName]
-		if !ok || job.UpdatedAt.After(prev.UpdatedAt) || (job.UpdatedAt.Equal(prev.UpdatedAt) && job.ID > prev.ID) {
+		if !ok || job.CreatedAt.After(prev.CreatedAt) || (job.CreatedAt.Equal(prev.CreatedAt) && job.ID > prev.ID) {
 			latest[job.StackName] = job
 		}
 	}

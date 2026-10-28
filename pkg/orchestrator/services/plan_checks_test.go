@@ -13,14 +13,16 @@ func TestLatestPlanJobsForSHA(t *testing.T) {
 	older := time.Now().Add(-time.Hour)
 	newer := time.Now()
 	jobs := []*models.Job{
-		{ID: "1", StackName: "a", CommitSHA: "sha1", Action: models.JobActionPlan, UpdatedAt: older},
-		{ID: "2", StackName: "a", CommitSHA: "sha1", Action: models.JobActionPlan, UpdatedAt: newer},
-		{ID: "3", StackName: "b", CommitSHA: "sha1", Action: models.JobActionApply, UpdatedAt: newer},
-		{ID: "4", StackName: "c", CommitSHA: "other", Action: models.JobActionPlan, UpdatedAt: newer},
+		// The newer attempt has an earlier UpdatedAt. Finishing the older
+		// attempt bumps UpdatedAt, so creation time is what decides.
+		{ID: "1", StackName: "a", CommitSHA: "sha1", Action: models.JobActionPlan, CreatedAt: newer, UpdatedAt: older},
+		{ID: "2", StackName: "a", CommitSHA: "sha1", Action: models.JobActionPlan, CreatedAt: older, UpdatedAt: newer},
+		{ID: "3", StackName: "b", CommitSHA: "sha1", Action: models.JobActionApply, CreatedAt: newer, UpdatedAt: newer},
+		{ID: "4", StackName: "c", CommitSHA: "other", Action: models.JobActionPlan, CreatedAt: newer, UpdatedAt: newer},
 	}
 	got := latestPlanJobsForSHA(jobs, "sha1")
 	require.Len(t, got, 1)
-	require.Equal(t, "2", got[0].ID)
+	require.Equal(t, "1", got[0].ID)
 }
 
 func TestPlanRollup(t *testing.T) {

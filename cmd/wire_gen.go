@@ -43,7 +43,7 @@ func InitializeOrchestrator() (orchestrator.Manager, error) {
 	}
 	jobRepository := storage.NewJobRepository(db)
 	lockRepository := storage.NewLockRepository(db)
-	configFile, err := loadOrchestratorConfig(configConfig)
+	configFile, err := loadOrchestratorConfig(logger, configConfig)
 	if err != nil {
 		return nil, err
 	}

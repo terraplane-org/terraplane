@@ -1,0 +1,23 @@
+agents:
+  agent-dev:
+    token_env: SHARED_AUTH_TOKEN
+
+repos:
+  # * does not match /, so this is any owner/name slug.
+  - repo: "*/*"
+    gates:
+      - type: plan
+    environments:
+      - name: staging
+        agent: agent-dev
+        stacks:
+          - name: stg-apse2-foundation
+            dir: terraform/environments/staging/ap-southeast-2/foundation
+          - name: stg-apse2-platform
+            dir: terraform/environments/staging/ap-southeast-2/platform
+          - name: stg-apse2-runtime
+            dir: terraform/environments/staging/ap-southeast-2/runtime
+          - name: stg-apse2-services
+            dir: terraform/environments/staging/ap-southeast-2/services
+          - name: stg-apse2-slow
+            dir: terraform/environments/staging/ap-southeast-2/slow

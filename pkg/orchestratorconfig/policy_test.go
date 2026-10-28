@@ -99,9 +99,9 @@ func TestLoadFile(t *testing.T) {
 	require.Nil(t, cfg)
 	require.False(t, cfg.PlanGateEnabled("org/app"))
 
-	_, err = orchestratorconfig.LoadFile(filepath.Join(t.TempDir(), "missing.yaml"))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "read orchestrator config")
+	missing, err := orchestratorconfig.LoadFile(filepath.Join(t.TempDir(), "missing.yaml"))
+	require.NoError(t, err)
+	require.Nil(t, missing)
 
 	path := filepath.Join(t.TempDir(), "orchestrator.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(gateYAML("type: plan")), 0o644))

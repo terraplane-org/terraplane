@@ -245,3 +245,31 @@ func (mr *MockJobRepositoryMockRecorder) UpsertPendingJob(ctx, repo, prNumber, s
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPendingJob", reflect.TypeOf((*MockJobRepository)(nil).UpsertPendingJob), ctx, repo, prNumber, stackName, action, payload, agent)
 }
+
+// WithPlanStatusLock mocks base method.
+func (m *MockJobRepository) WithPlanStatusLock(ctx context.Context, repo, sha string, fn func(context.Context) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithPlanStatusLock", ctx, repo, sha, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithPlanStatusLock indicates an expected call of WithPlanStatusLock.
+func (mr *MockJobRepositoryMockRecorder) WithPlanStatusLock(ctx, repo, sha, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithPlanStatusLock", reflect.TypeOf((*MockJobRepository)(nil).WithPlanStatusLock), ctx, repo, sha, fn)
+}
+
+// WithTransaction mocks base method.
+func (m *MockJobRepository) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTransaction", ctx, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithTransaction indicates an expected call of WithTransaction.
+func (mr *MockJobRepositoryMockRecorder) WithTransaction(ctx, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTransaction", reflect.TypeOf((*MockJobRepository)(nil).WithTransaction), ctx, fn)
+}

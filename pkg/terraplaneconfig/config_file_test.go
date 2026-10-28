@@ -80,6 +80,13 @@ environments:
 		require.Contains(t, err.Error(), "parse terraplane config")
 	})
 
+	t.Run("wrong shape", func(t *testing.T) {
+		cfg, err := terraplaneconfig.ParseConfigFile([]byte("environments: staging\n"))
+		require.Error(t, err)
+		require.Nil(t, cfg)
+		require.Contains(t, err.Error(), "parse terraplane config")
+	})
+
 	t.Run("server policy keys are rejected", func(t *testing.T) {
 		_, err := terraplaneconfig.ParseConfigFile([]byte(`
 gates:

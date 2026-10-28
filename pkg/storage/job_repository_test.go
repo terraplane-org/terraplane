@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -276,6 +277,53 @@ func TestUpsertPendingJobDoesNotClobberClaimed(t *testing.T) {
 	require.Equal(t, models.JobStatusClaimed, getJob(t, repo, claimed.ID).Status)
 }
 
+func TestWithTransactionRollsBackPendingJobs(t *testing.T) {
+	repo := testJobRepo(t)
+	err := repo.WithTransaction(context.Background(), func(ctx context.Context) error {
+		_, err := repo.UpsertPendingJob(
+			ctx, "acme/infra", 7, "a", "plan",
+			map[string]interface{}{"dir": "stacks/a", "commit_sha": "abc"},
+			"agent-a",
+		)
+		require.NoError(t, err)
+		_, err = repo.UpsertPendingJob(
+			ctx, "acme/infra", 7, "b", "plan",
+			map[string]interface{}{"dir": "stacks/b", "commit_sha": "abc"},
+			"agent-a",
+		)
+		require.NoError(t, err)
+		return errors.New("boom")
+	})
+	require.EqualError(t, err, "boom")
+
+	got, err := repo.ListByRepoPRAction(context.Background(), "acme/infra", 7, models.JobActionPlan)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestWithTransactionCommitsPendingJobsTogether(t *testing.T) {
+	repo := testJobRepo(t)
+	err := repo.WithTransaction(context.Background(), func(ctx context.Context) error {
+		_, err := repo.UpsertPendingJob(
+			ctx, "acme/infra", 7, "a", "plan",
+			map[string]interface{}{"dir": "stacks/a", "commit_sha": "abc"},
+			"agent-a",
+		)
+		require.NoError(t, err)
+		_, err = repo.UpsertPendingJob(
+			ctx, "acme/infra", 7, "b", "plan",
+			map[string]interface{}{"dir": "stacks/b", "commit_sha": "abc"},
+			"agent-a",
+		)
+		return err
+	})
+	require.NoError(t, err)
+
+	got, err := repo.ListByRepoPRAction(context.Background(), "acme/infra", 7, models.JobActionPlan)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+}
+
 func TestUpsertPendingJobInvalidPayload(t *testing.T) {
 	repo := testJobRepo(t)
 	_, err := repo.UpsertPendingJob(
@@ -389,6 +437,70 @@ func TestCleanupExpiredJobsDeletesOldTerminalJobsOnly(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, fresh.ID, getJob(t, repo, fresh.ID).ID)
 	require.Equal(t, oldPending.ID, getJob(t, repo, oldPending.ID).ID)
+}
+
+func TestWithPlanStatusLockSerializes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/locks.db?_pragma=busy_timeout(5000)"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(2)
+	require.NoError(t, db.AutoMigrate(&models.PlanStatusLock{}))
+	repo := NewJobRepository(&DB{pool: db})
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- repo.WithPlanStatusLock(context.Background(), "acme/infra", "abc123", func(context.Context) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first lock holder did not start")
+	}
+
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- repo.WithPlanStatusLock(context.Background(), "acme/infra", "abc123", func(context.Context) error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+
+	select {
+	case <-secondEntered:
+		t.Fatal("second lock holder entered before the first released")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case <-secondEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second lock holder did not enter after the first released")
+	}
+	select {
+	case err := <-firstDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("first lock holder did not finish")
+	}
+	select {
+	case err := <-secondDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("second lock holder did not finish")
+	}
 }
 
 func TestListByRepoPRAction(t *testing.T) {
