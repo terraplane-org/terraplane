@@ -18,10 +18,11 @@ type Environment struct {
 }
 
 type Stack struct {
-	Name        string `yaml:"name"`
-	Agent       string `yaml:"agent,omitempty"`
-	Dir         string `yaml:"dir"`
-	ToolVersion string `yaml:"tool_version,omitempty"`
+	Name        string   `yaml:"name"`
+	Agent       string   `yaml:"agent,omitempty"`
+	Dir         string   `yaml:"dir"`
+	ToolVersion string   `yaml:"tool_version,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
 }
 
 // ResolvedStack is a stack with environment inheritance applied (agent, etc.).
@@ -31,6 +32,7 @@ type ResolvedStack struct {
 	Agent       string
 	Dir         string
 	ToolVersion string
+	Tags        []string
 }
 
 func ParseConfigFile(data []byte) (*ConfigFile, error) {
@@ -88,6 +90,18 @@ func (c *ConfigFile) Validate() error {
 			if agent == "" {
 				return fmt.Errorf("stack %q in environment %q has no agent (set agent on the stack or environment)", stackName, name)
 			}
+
+			seenTags := make(map[string]struct{}, len(stack.Tags))
+			for _, tag := range stack.Tags {
+				tag = strings.TrimSpace(tag)
+				if tag == "" {
+					return fmt.Errorf("stack %q in environment %q has an empty tag", stackName, name)
+				}
+				if _, ok := seenTags[tag]; ok {
+					return fmt.Errorf("stack %q in environment %q has duplicate tag %q", stackName, name, tag)
+				}
+				seenTags[tag] = struct{}{}
+			}
 		}
 	}
 	return nil
@@ -101,12 +115,20 @@ func (c *ConfigFile) allResolved() []ResolvedStack {
 			if agent == "" {
 				agent = strings.TrimSpace(env.Agent)
 			}
+			var tags []string
+			if len(stack.Tags) > 0 {
+				tags = make([]string, len(stack.Tags))
+				for i, tag := range stack.Tags {
+					tags[i] = strings.TrimSpace(tag)
+				}
+			}
 			out = append(out, ResolvedStack{
 				Environment: strings.TrimSpace(env.Name),
 				Name:        strings.TrimSpace(stack.Name),
 				Agent:       agent,
 				Dir:         strings.TrimSpace(stack.Dir),
 				ToolVersion: strings.TrimSpace(stack.ToolVersion),
+				Tags:        tags,
 			})
 		}
 	}
