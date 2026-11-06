@@ -120,6 +120,33 @@ func (s *JobServiceSuite) TestParseConfigFailure() {
 func (s *JobServiceSuite) TestResolveStacksFailure() {
 	wh := webhook("terraplane plan -s missing")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
+			require.Contains(s.T(), body, "terraplane plan -s missing")
+			require.Contains(s.T(), body, `unknown stack "missing"`)
+			return 7, nil
+		},
+	)
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to resolve stacks")
+}
+
+func (s *JobServiceSuite) TestResolveStacksFailurePublishesCommentWithoutJobs() {
+	wh := webhook("terraplane plan -s a -s missing")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).Return(7, nil)
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to resolve stacks")
+}
+
+func (s *JobServiceSuite) TestResolveStacksFailureCommentPublishErrorIsLogged() {
+	wh := webhook("terraplane plan -s missing")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).Return(0, errors.New("github down"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.Error(s.T(), err)
