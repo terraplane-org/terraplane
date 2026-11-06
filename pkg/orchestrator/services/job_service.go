@@ -93,6 +93,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 
 	resolvedStacks, err := config.ResolveStacks(stackNames, environmentNames)
 	if err != nil {
+		j.publishCommandError(ctx, webhook, err)
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 	}
 
@@ -142,6 +143,20 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 	}
 
 	return nil
+}
+
+// publishCommandError reports a command that could not be fulfilled back to the
+// pull request so the triggering user is not left without a response.
+func (j *jobService) publishCommandError(ctx context.Context, webhook *scm.Webhook, cause error) {
+	body := fmt.Sprintf("`%s` failed:\n\n> %v", webhook.FullCommand, cause)
+	if _, err := j.scmPublisher.WriteComment(ctx, webhook.RepositorySlug, webhook.PRNumber, body); err != nil {
+		j.logger.Error(
+			"Failed to publish command error comment",
+			"repo", webhook.RepositorySlug,
+			"pr", webhook.PRNumber,
+			"error", err,
+		)
+	}
 }
 
 func (j *jobService) acquireApplyLock(ctx context.Context, webhook *scm.Webhook, stack terraplaneconfig.ResolvedStack) (bool, error) {
