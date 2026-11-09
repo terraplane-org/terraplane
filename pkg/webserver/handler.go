@@ -81,6 +81,18 @@ func (h *handler) scmWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	for _, webhook := range webhooks {
 		cmd := command.ParseWebhook(&webhook)
 		if cmd.Kind == command.KindUnknown {
+			if cmd.ParseError != "" {
+				if _, err := h.scmPublisher.WriteComment(r.Context(), webhook.RepositorySlug, webhook.PRNumber, cmd.ParseError); err != nil {
+					h.logger.Error(
+						"Failed to write invalid command feedback",
+						"repo", webhook.RepositorySlug,
+						"pr", webhook.PRNumber,
+						"comment_id", webhook.CommentID,
+						"error", err,
+					)
+				}
+				continue
+			}
 			h.logger.Debug(
 				"Ignoring pull request comment that is not a terraplane command",
 				"repo", webhook.RepositorySlug,

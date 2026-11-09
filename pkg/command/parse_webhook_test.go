@@ -211,6 +211,30 @@ func TestParseWebhook(t *testing.T) {
 		require.Equal(t, command.KindUnknown, cmd.Kind)
 	})
 
+	t.Run("invalid terraplane commands include syntax feedback", func(t *testing.T) {
+		for _, body := range []string{
+			"terraplane",
+			"terraplane deploy",
+			"terraplane apply --unknown",
+			"terraplane unlock",
+			"terraplane plan -s",
+		} {
+			w := *base
+			w.FullCommand = body
+			cmd := command.ParseWebhook(&w)
+			require.Equal(t, command.KindUnknown, cmd.Kind, "body=%q", body)
+			require.Equal(t, command.InvalidCommandHelp, cmd.ParseError, "body=%q", body)
+		}
+	})
+
+	t.Run("ordinary comments do not receive syntax feedback", func(t *testing.T) {
+		w := *base
+		w.FullCommand = "Could you take a look?"
+		cmd := command.ParseWebhook(&w)
+		require.Equal(t, command.KindUnknown, cmd.Kind)
+		require.Empty(t, cmd.ParseError)
+	})
+
 	t.Run("unknown", func(t *testing.T) {
 		cases := []string{
 			"",

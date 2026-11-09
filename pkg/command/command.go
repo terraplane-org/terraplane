@@ -9,11 +9,20 @@ const (
 	KindUnlock  Kind = "unlock"
 )
 
+const InvalidCommandHelp = "Couldn't parse command.\n\nValid commands:\n\n" +
+	"`terraplane plan [-s <stack>]... [-e <environment>]... [-- <terraform flags>]`\n" +
+	"`terraplane apply [-s <stack>]... [-e <environment>]...`\n" +
+	"`terraplane unlock [-s <stack>]... [-e <environment>]...`\n\n" +
+	"Use `-s` or `--stack` to select stacks and `-e` or `--env` to select environments. " +
+	"Terraform flags are supported only for `plan` and must follow `--`. " +
+	"`unlock` requires at least one stack or environment."
+
 type Command struct {
-	Kind   Kind
-	Plan   PlanCommand
-	Apply  ApplyCommand
-	Unlock UnlockCommand
+	Kind       Kind
+	ParseError string
+	Plan       PlanCommand
+	Apply      ApplyCommand
+	Unlock     UnlockCommand
 }
 
 func (c *Command) JobID() string {

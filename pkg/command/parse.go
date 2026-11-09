@@ -11,23 +11,30 @@ import (
 
 func ParseWebhook(w *scm.Webhook) Command {
 	fields := strings.Fields(firstLine(w.FullCommand))
+	if len(fields) == 0 || !strings.EqualFold(fields[0], "terraplane") {
+		return Command{Kind: KindUnknown}
+	}
+	if len(fields) < 2 {
+		return invalidCommand()
+	}
+
 	kind := verb(fields)
 	if kind == KindUnknown {
-		return Command{Kind: KindUnknown}
+		return invalidCommand()
 	}
 
 	stacks, envs, rest, ok := parseArgs(fields[2:])
 	if !ok {
-		return Command{Kind: KindUnknown}
+		return invalidCommand()
 	}
 	if kind != KindPlan && len(rest) > 0 {
-		return Command{Kind: KindUnknown}
+		return invalidCommand()
 	}
 	if kind == KindPlan && len(rest) > 0 && !hasDoubleDash(fields[2:]) {
-		return Command{Kind: KindUnknown}
+		return invalidCommand()
 	}
 	if kind == KindUnlock && len(stacks) == 0 && len(envs) == 0 {
-		return Command{Kind: KindUnknown}
+		return invalidCommand()
 	}
 
 	b := base{
@@ -57,6 +64,10 @@ func ParseWebhook(w *scm.Webhook) Command {
 		Stacks:       stacks,
 		Environments: envs,
 	}}
+}
+
+func invalidCommand() Command {
+	return Command{Kind: KindUnknown, ParseError: InvalidCommandHelp}
 }
 
 func verb(fields []string) Kind {

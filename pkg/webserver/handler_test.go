@@ -186,6 +186,25 @@ func (s *HandlerSuite) TestWebhookIgnoresUnknownCommands() {
 	}
 }
 
+func (s *HandlerSuite) TestWebhookInvalidTerraplaneCommandGetsSyntaxFeedback() {
+	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{{
+		RepositorySlug: "acme/infra",
+		PRNumber:       1,
+		FullCommand:    "terraplane apply --unknown",
+		TriggeringUser: "jace",
+		CommentID:      99,
+	}}, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), "acme/infra", 1, command.InvalidCommandHelp).Return(100, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/scm/webhook", nil)
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+	require.Empty(s.T(), s.jobs.called)
+	require.Empty(s.T(), s.unlocks.ran)
+}
+
 func (s *HandlerSuite) TestWebhookEnqueuesPendingJobs() {
 	s.scm.EXPECT().ParseWebhook(gomock.Any()).Return([]scm.Webhook{
 		{RepositorySlug: "acme/infra", PRNumber: 1, FullCommand: "terraplane plan -s a", TriggeringUser: "jace", CommitSHA: "abc", CommentID: 11},
