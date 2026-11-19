@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xyzjace/terraplane/config"
@@ -97,8 +98,37 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		return fmt.Errorf("failed to resolve stacks for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 	}
 
+	plannedStacks := map[string]struct{}{}
+	if action == string(models.JobActionApply) {
+		planned, err := j.jobRepository.SucceededPlanStacks(
+			ctx, webhook.RepositorySlug, webhook.PRNumber, webhook.CommitSHA,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to look up planned stacks for repository %s pull request #%d: %w",
+				webhook.RepositorySlug, webhook.PRNumber, err,
+			)
+		}
+		for _, name := range planned {
+			plannedStacks[name] = struct{}{}
+		}
+	}
+
+	var skippedUnplanned []string
+	enqueued := 0
 	for _, stack := range resolvedStacks {
 		if action == string(models.JobActionApply) {
+			if _, ok := plannedStacks[stack.Name]; !ok {
+				skippedUnplanned = append(skippedUnplanned, stack.Name)
+				j.logger.Info(
+					"Skipping apply for stack without a succeeded plan at this commit",
+					"repo", webhook.RepositorySlug,
+					"pr", webhook.PRNumber,
+					"stack", stack.Name,
+					"commit", webhook.CommitSHA,
+				)
+				continue
+			}
 			ok, err := j.acquireApplyLock(ctx, webhook, stack)
 			if err != nil {
 				return err
@@ -130,6 +160,7 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		if err != nil {
 			return fmt.Errorf("failed to upsert pending job for repository %s pull request #%d: %w", webhook.RepositorySlug, webhook.PRNumber, err)
 		}
+		enqueued++
 
 		j.logger.Debug(
 			"Upserted pending job",
@@ -142,7 +173,49 @@ func (j *jobService) CreatePendingJobs(ctx context.Context, webhook *scm.Webhook
 		)
 	}
 
+	if action == string(models.JobActionApply) && enqueued == 0 {
+		j.publishNoPlannedStacks(ctx, webhook, skippedUnplanned)
+	}
+
 	return nil
+}
+
+// publishNoPlannedStacks tells the user why apply enqueued nothing.
+func (j *jobService) publishNoPlannedStacks(ctx context.Context, webhook *scm.Webhook, skipped []string) {
+	var body string
+	switch {
+	case len(skipped) == 0:
+		body = fmt.Sprintf(
+			"`%s` did not enqueue any applies: no stacks were eligible (all locked or already running).",
+			webhook.FullCommand,
+		)
+	default:
+		body = fmt.Sprintf(
+			"`%s` did not enqueue any applies: no succeeded plans for commit `%s`.\n\nSkipped stacks without a plan:\n",
+			webhook.FullCommand,
+			shortCommit(webhook.CommitSHA),
+		)
+		for _, name := range skipped {
+			body += fmt.Sprintf("- `%s`\n", name)
+		}
+		body += "\nRun `terraplane plan` first, then apply."
+	}
+	if _, err := j.scmPublisher.WriteComment(ctx, webhook.RepositorySlug, webhook.PRNumber, body); err != nil {
+		j.logger.Error(
+			"Failed to publish no-planned-stacks comment",
+			"repo", webhook.RepositorySlug,
+			"pr", webhook.PRNumber,
+			"error", err,
+		)
+	}
+}
+
+func shortCommit(sha string) string {
+	sha = strings.TrimSpace(sha)
+	if len(sha) >= 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 // publishCommandError reports a command that could not be fulfilled back to the
@@ -331,8 +404,7 @@ func (j *jobService) CommitJobResult(ctx context.Context, jobID, agentID, result
 		}
 	}
 
-	comment := feedback.JobResultComment(job, job.Status, output, errMsg)
-	j.publishResultComment(ctx, job, comment)
+	j.publishResultComments(ctx, job, feedback.JobResultComments(job, job.Status, output, errMsg))
 	return nil
 }
 
@@ -357,14 +429,14 @@ func (j *jobService) HandlePeriodicResult(ctx context.Context, jobID, agentID, o
 		return fmt.Errorf("failed to fetch job %s: %w", jobID, err)
 	}
 
-	comment := feedback.JobResultComment(job, job.Status, output, "")
-	j.publishResultComment(ctx, job, comment)
+	j.publishResultComments(ctx, job, feedback.JobResultComments(job, job.Status, output, ""))
 	return nil
 }
 
-// publishResultComment updates the existing PR comment when payload has comment_id,
-// otherwise creates one and stores the ID for later updates. Failures are logged.
-func (j *jobService) publishResultComment(ctx context.Context, job *models.Job, body string) {
+// publishResultComments creates or updates PR comments for a job result. Large
+// outputs may span multiple comments; IDs are stored in payload as comment_ids.
+// Failures are logged.
+func (j *jobService) publishResultComments(ctx context.Context, job *models.Job, bodies []string) {
 	payload, err := unmarshalJobPayload(job.Payload)
 	if err != nil {
 		j.logger.Error(
@@ -375,51 +447,93 @@ func (j *jobService) publishResultComment(ctx context.Context, job *models.Job, 
 		return
 	}
 
-	if commentID := payloadString(payload, "comment_id"); commentID != "" {
-		id, err := strconv.Atoi(commentID)
+	ids := storedCommentIDs(payload)
+	originalCount := len(ids)
+
+	for i, body := range bodies {
+		if i < len(ids) {
+			if err := j.scmPublisher.UpdateComment(ctx, job.Repo, int(job.PRNumber), body, ids[i]); err != nil {
+				j.logger.Error(
+					"Failed to update job result comment",
+					"job_id", job.ID,
+					"repo", job.Repo,
+					"pr", job.PRNumber,
+					"stack", job.StackName,
+					"comment_id", ids[i],
+					"part", i+1,
+					"error", err,
+				)
+			}
+			continue
+		}
+
+		id, err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), body)
 		if err != nil {
 			j.logger.Error(
-				"Failed to parse stored comment ID",
-				"job_id", job.ID,
-				"comment_id", commentID,
-				"error", err,
-			)
-			return
-		}
-		if err := j.scmPublisher.UpdateComment(ctx, job.Repo, int(job.PRNumber), body, id); err != nil {
-			j.logger.Error(
-				"Failed to update job result comment",
+				"Failed to write job result comment",
 				"job_id", job.ID,
 				"repo", job.Repo,
 				"pr", job.PRNumber,
 				"stack", job.StackName,
+				"part", i+1,
 				"error", err,
 			)
+			// Stop creating further parts so comment_ids stay aligned with posted bodies.
+			break
 		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 || len(ids) == originalCount {
 		return
 	}
 
-	id, err := j.scmPublisher.WriteComment(ctx, job.Repo, int(job.PRNumber), body)
-	if err != nil {
-		j.logger.Error(
-			"Failed to write job result comment",
-			"job_id", job.ID,
-			"repo", job.Repo,
-			"pr", job.PRNumber,
-			"stack", job.StackName,
-			"error", err,
-		)
-		return
-	}
-
-	payload["comment_id"] = strconv.Itoa(id)
+	payload["comment_ids"] = intIDsToAny(ids)
 	if err := j.jobRepository.UpdatePayload(ctx, job, payload); err != nil {
 		j.logger.Error(
-			"Failed to update job payload with comment ID",
+			"Failed to update job payload with comment IDs",
 			"job_id", job.ID,
 			"error", err,
 		)
 	}
+}
+
+func storedCommentIDs(payload map[string]any) []int {
+	raw, ok := payload["comment_ids"]
+	if !ok || raw == nil {
+		return nil
+	}
+	v, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	ids := make([]int, 0, len(v))
+	for _, item := range v {
+		if id, ok := anyToInt(item); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func anyToInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64: // encoding/json decodes numbers as float64
+		return int(n), true
+	case string:
+		i, err := strconv.Atoi(n)
+		return i, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func intIDsToAny(ids []int) []any {
+	out := make([]any, len(ids))
+	for i, id := range ids {
+		out[i] = id
+	}
+	return out
 }
 
 func (j *jobService) releaseApplyLock(ctx context.Context, job *models.Job, jobID string) error {

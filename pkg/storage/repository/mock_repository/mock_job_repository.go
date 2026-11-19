@@ -188,6 +188,21 @@ func (mr *MockJobRepositoryMockRecorder) ReleaseClaimedJob(ctx, jobID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseClaimedJob", reflect.TypeOf((*MockJobRepository)(nil).ReleaseClaimedJob), ctx, jobID)
 }
 
+// SucceededPlanStacks mocks base method.
+func (m *MockJobRepository) SucceededPlanStacks(ctx context.Context, repo string, prNumber int, commitSHA string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SucceededPlanStacks", ctx, repo, prNumber, commitSHA)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SucceededPlanStacks indicates an expected call of SucceededPlanStacks.
+func (mr *MockJobRepositoryMockRecorder) SucceededPlanStacks(ctx, repo, prNumber, commitSHA any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SucceededPlanStacks", reflect.TypeOf((*MockJobRepository)(nil).SucceededPlanStacks), ctx, repo, prNumber, commitSHA)
+}
+
 // Update mocks base method.
 func (m *MockJobRepository) Update(ctx context.Context, job *models.Job) error {
 	m.ctrl.T.Helper()

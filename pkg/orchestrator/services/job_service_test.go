@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,10 @@ func (s *JobServiceSuite) expectLockCreate(stack, dir string, err error) {
 			return err
 		},
 	)
+}
+
+func (s *JobServiceSuite) expectSucceededPlans(stacks ...string) {
+	s.jobs.EXPECT().SucceededPlanStacks(gomock.Any(), "acme/infra", 42, "abc123").Return(stacks, nil)
 }
 
 func (s *JobServiceSuite) TestIgnoresUnknownCommands() {
@@ -241,6 +246,7 @@ environments:
 func (s *JobServiceSuite) TestApplyCreatesLockThenUpserts() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
 	s.expectLockCreate("a", "stacks/a", nil)
 	s.expectUpsert("a", "stacks/a", "apply", "agent-a", "job-a")
 
@@ -251,6 +257,7 @@ func (s *JobServiceSuite) TestApplyCreatesLockThenUpserts() {
 func (s *JobServiceSuite) TestApplySupersedesWhenLockedBySamePR() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
 	s.expectLockCreate("a", "stacks/a", repository.ErrLockExists)
 	s.locks.EXPECT().Get(gomock.Any(), "acme/infra", "a", "default").Return(&models.ProjectLock{
 		PRNumber: 42,
@@ -265,6 +272,7 @@ func (s *JobServiceSuite) TestApplySupersedesWhenLockedBySamePR() {
 func (s *JobServiceSuite) TestApplySkipsWhenLockedByOtherPR() {
 	wh := webhook("terraplane apply")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a", "b")
 	s.expectLockCreate("a", "stacks/a", repository.ErrLockExists)
 	s.locks.EXPECT().Get(gomock.Any(), "acme/infra", "a", "default").Return(&models.ProjectLock{
 		PRNumber: 7,
@@ -280,8 +288,15 @@ func (s *JobServiceSuite) TestApplySkipsWhenLockedByOtherPR() {
 func (s *JobServiceSuite) TestApplySkipsWhenLockExistsAndGetReturnsNil() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
 	s.expectLockCreate("a", "stacks/a", repository.ErrLockExists)
 	s.locks.EXPECT().Get(gomock.Any(), "acme/infra", "a", "default").Return(nil, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
+			require.Contains(s.T(), body, "did not enqueue any applies")
+			return 1, nil
+		},
+	)
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.NoError(s.T(), err)
@@ -290,6 +305,7 @@ func (s *JobServiceSuite) TestApplySkipsWhenLockExistsAndGetReturnsNil() {
 func (s *JobServiceSuite) TestApplyLockCreateFailure() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
 	s.expectLockCreate("a", "stacks/a", errors.New("db"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
@@ -300,12 +316,52 @@ func (s *JobServiceSuite) TestApplyLockCreateFailure() {
 func (s *JobServiceSuite) TestApplyLockGetFailure() {
 	wh := webhook("terraplane apply -s a")
 	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
 	s.expectLockCreate("a", "stacks/a", repository.ErrLockExists)
 	s.locks.EXPECT().Get(gomock.Any(), "acme/infra", "a", "default").Return(nil, errors.New("db"))
 
 	err := s.svc.CreatePendingJobs(context.Background(), wh)
 	require.Error(s.T(), err)
 	require.Contains(s.T(), err.Error(), "failed to fetch lock")
+}
+
+func (s *JobServiceSuite) TestApplySkipsStacksWithoutSucceededPlan() {
+	wh := webhook("terraplane apply")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans("a")
+	s.expectLockCreate("a", "stacks/a", nil)
+	s.expectUpsert("a", "stacks/a", "apply", "agent-a", "job-a")
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.NoError(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestApplyWithNoSucceededPlansPublishesComment() {
+	wh := webhook("terraplane apply")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.expectSucceededPlans()
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
+			require.Contains(s.T(), body, "no succeeded plans")
+			require.Contains(s.T(), body, "`a`")
+			require.Contains(s.T(), body, "`b`")
+			require.Contains(s.T(), body, "terraplane plan")
+			return 1, nil
+		},
+	)
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.NoError(s.T(), err)
+}
+
+func (s *JobServiceSuite) TestApplySucceededPlanLookupFailure() {
+	wh := webhook("terraplane apply -s a")
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.jobs.EXPECT().SucceededPlanStacks(gomock.Any(), "acme/infra", 42, "abc123").Return(nil, errors.New("db"))
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "failed to look up planned stacks")
 }
 
 func (s *JobServiceSuite) TestUnlockDoesNotEnqueueJobs() {
@@ -654,7 +710,8 @@ func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(7, nil)
 	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
-			require.Equal(s.T(), "7", payload["comment_id"])
+			require.Equal(s.T(), []any{7}, payload["comment_ids"])
+			require.NotContains(s.T(), payload, "comment_id")
 			return nil
 		},
 	)
@@ -664,7 +721,7 @@ func (s *JobServiceSuite) TestCommitJobResultPlanSuccess() {
 
 func (s *JobServiceSuite) TestCommitJobResultUpdatesExistingComment() {
 	job := resultJob(models.JobActionPlan)
-	job.Payload = `{"comment_id":"42"}`
+	job.Payload = `{"comment_ids":[42]}`
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
@@ -767,7 +824,8 @@ func (s *JobServiceSuite) TestHandlePeriodicResultCreatesCommentAndStoresID() {
 	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(99, nil)
 	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
 		func(_ context.Context, updated *models.Job, payload map[string]interface{}) error {
-			require.Equal(s.T(), "99", payload["comment_id"])
+			require.Equal(s.T(), []any{99}, payload["comment_ids"])
+			require.NotContains(s.T(), payload, "comment_id")
 			require.Equal(s.T(), "alice", payload["trigger_user"])
 			return nil
 		},
@@ -778,11 +836,76 @@ func (s *JobServiceSuite) TestHandlePeriodicResultCreatesCommentAndStoresID() {
 
 func (s *JobServiceSuite) TestHandlePeriodicResultUpdatesExistingComment() {
 	job := resultJob(models.JobActionPlan)
-	job.Payload = `{"comment_id":"42"}`
+	job.Payload = `{"comment_ids":[42]}`
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
 
 	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "more out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultExtendsCommentIDsWhenOutputGrows() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_ids":[10]}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+
+	var output strings.Builder
+	for output.Len() < 70000 {
+		output.WriteString("line of terraform plan output that is fairly long for padding\n")
+	}
+
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 10).Return(nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(11, nil).AnyTimes()
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
+			ids := payload["comment_ids"].([]any)
+			require.GreaterOrEqual(s.T(), len(ids), 2)
+			require.Equal(s.T(), 10, ids[0])
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", output.String()))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultReadsFloatCommentIDsFromJSON() {
+	job := resultJob(models.JobActionPlan)
+	// encoding/json unmarshals numbers into float64.
+	job.Payload = `{"comment_ids":[42.0]}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "more out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultReadsStringCommentIDsFromJSON() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_ids":["42", true, "nope"]}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(nil)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "more out"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultStopsCreatingPartsAfterWriteFailure() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	var output strings.Builder
+	for output.Len() < 70000 {
+		output.WriteString("line of terraform plan output that is fairly long for padding\n")
+	}
+
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(1, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(0, errors.New("github down"))
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
+			require.Equal(s.T(), []any{1}, payload["comment_ids"])
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", output.String(), ""))
 }
 
 func (s *JobServiceSuite) TestHandlePeriodicResultWriteFailureDoesNotStoreID() {
@@ -793,13 +916,78 @@ func (s *JobServiceSuite) TestHandlePeriodicResultWriteFailureDoesNotStoreID() {
 	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
 }
 
-func (s *JobServiceSuite) TestHandlePeriodicResultInvalidCommentID() {
+func (s *JobServiceSuite) TestHandlePeriodicResultInvalidCommentIDsCreatesFreshComment() {
 	job := resultJob(models.JobActionPlan)
-	job.Payload = `{"comment_id":"nope"}`
+	job.Payload = `{"comment_ids":["nope", true]}`
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(55, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
+			require.Equal(s.T(), []any{55}, payload["comment_ids"])
+			require.NotContains(s.T(), payload, "comment_id")
+			return nil
+		},
+	)
 
-	// Invalid stored IDs are logged; the job result path stays best-effort.
 	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestHandlePeriodicResultNonArrayCommentIDsCreatesFreshComment() {
+	job := resultJob(models.JobActionPlan)
+	job.Payload = `{"comment_ids":"42"}`
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).Return(56, nil)
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).Return(nil)
+
+	require.NoError(s.T(), s.svc.HandlePeriodicResult(context.Background(), "job-1", "agent-a", "out"))
+}
+
+func (s *JobServiceSuite) TestCommitJobResultSplitsOversizedOutputAcrossComments() {
+	job := resultJob(models.JobActionPlan)
+	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
+	s.jobs.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
+
+	var output strings.Builder
+	output.WriteString("BEGIN\n")
+	for output.Len() < 70000 {
+		output.WriteString("line of terraform plan output that is fairly long for padding\n")
+	}
+	output.WriteString("END\n")
+
+	nextID := 1
+	s.publisher.EXPECT().WriteComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any()).
+		DoAndReturn(func(context.Context, string, int, string) (int, error) {
+			id := nextID
+			nextID++
+			return id, nil
+		}).AnyTimes()
+	s.jobs.EXPECT().UpdatePayload(gomock.Any(), job, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *models.Job, payload map[string]interface{}) error {
+			ids, ok := payload["comment_ids"].([]any)
+			require.True(s.T(), ok)
+			require.GreaterOrEqual(s.T(), len(ids), 2)
+			require.NotContains(s.T(), payload, "comment_id")
+			return nil
+		},
+	)
+
+	require.NoError(s.T(), s.svc.CommitJobResult(context.Background(), "job-1", "agent-a", "success", output.String(), ""))
+}
+
+func (s *JobServiceSuite) TestApplyWithNoSucceededPlansCommentPublishErrorIsLogged() {
+	wh := webhook("terraplane apply")
+	wh.CommitSHA = "abcdef0123456789"
+	s.scm.EXPECT().GetFile("terraplane.yaml", wh.CommitSHA, wh.RepositorySlug).Return(twoStackYAML, nil)
+	s.jobs.EXPECT().SucceededPlanStacks(gomock.Any(), "acme/infra", 42, wh.CommitSHA).Return(nil, nil)
+	s.publisher.EXPECT().WriteComment(gomock.Any(), wh.RepositorySlug, 42, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, body string) (int, error) {
+			require.Contains(s.T(), body, "abcdef0")
+			return 0, errors.New("github down")
+		},
+	)
+
+	err := s.svc.CreatePendingJobs(context.Background(), wh)
+	require.NoError(s.T(), err)
 }
 
 func (s *JobServiceSuite) TestHandlePeriodicResultGetFailure() {
@@ -819,7 +1007,7 @@ func (s *JobServiceSuite) TestHandlePeriodicResultInvalidPayload() {
 
 func (s *JobServiceSuite) TestHandlePeriodicResultUpdateCommentFailureIsBestEffort() {
 	job := resultJob(models.JobActionPlan)
-	job.Payload = `{"comment_id":"42"}`
+	job.Payload = `{"comment_ids":[42]}`
 	s.jobs.EXPECT().Get(gomock.Any(), "job-1").Return(job, nil)
 	s.publisher.EXPECT().UpdateComment(gomock.Any(), job.Repo, int(job.PRNumber), gomock.Any(), 42).Return(errors.New("github down"))
 

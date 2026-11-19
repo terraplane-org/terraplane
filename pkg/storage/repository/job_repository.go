@@ -14,6 +14,9 @@ type JobRepository interface {
 	Get(ctx context.Context, jobID string) (*models.Job, error)
 	ClaimPendingJobForAgent(ctx context.Context, agentID string, status models.JobStatus, leaseExpiresAt *time.Time) (*models.Job, error)
 	UpsertPendingJob(ctx context.Context, repo string, prNumber int, stackName string, action string, payload map[string]interface{}, agent string) (*models.Job, error)
+	// SucceededPlanStacks returns stack names with a succeeded plan for the
+	// given repo, PR, and commit. Used so apply only targets planned stacks.
+	SucceededPlanStacks(ctx context.Context, repo string, prNumber int, commitSHA string) ([]string, error)
 	ReleaseClaimedJob(ctx context.Context, jobID string) error
 	FailClaimedJob(ctx context.Context, jobID, errMsg string) error
 	ReapExpiredClaims(ctx context.Context, now time.Time) (*ReapExpiredClaimsResult, error)
