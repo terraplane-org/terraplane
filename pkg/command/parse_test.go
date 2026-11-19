@@ -22,3 +22,10 @@ func TestJobID(t *testing.T) {
 	unknown := &Command{Kind: KindUnknown}
 	require.Equal(t, "", unknown.JobID())
 }
+
+func TestVerbGuardsNonTerraplaneInput(t *testing.T) {
+	require.Equal(t, KindUnknown, verb(nil))
+	require.Equal(t, KindUnknown, verb([]string{"hello"}))
+	require.Equal(t, KindUnknown, verb([]string{"Nope", "plan"}))
+	require.Equal(t, KindPlan, verb([]string{"terraplane", "plan"}))
+}

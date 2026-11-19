@@ -324,13 +324,13 @@ func TestUpdatePayloadMarshalsAndPersists(t *testing.T) {
 	job := createJob(t, repo, &models.Job{Payload: `{"dir":"stacks/a"}`})
 
 	require.NoError(t, repo.UpdatePayload(context.Background(), job, map[string]interface{}{
-		"dir":        "stacks/a",
-		"comment_id": "123",
+		"dir":         "stacks/a",
+		"comment_ids": []any{123},
 	}))
 
 	got := getJob(t, repo, job.ID)
-	require.JSONEq(t, `{"comment_id":"123","dir":"stacks/a"}`, got.Payload)
-	require.JSONEq(t, `{"comment_id":"123","dir":"stacks/a"}`, job.Payload)
+	require.JSONEq(t, `{"comment_ids":[123],"dir":"stacks/a"}`, got.Payload)
+	require.JSONEq(t, `{"comment_ids":[123],"dir":"stacks/a"}`, job.Payload)
 }
 
 func TestUpdatePayloadInvalid(t *testing.T) {
@@ -351,6 +351,44 @@ func TestDeleteByRepoPRAndStacks(t *testing.T) {
 	require.Equal(t, keep.ID, getJob(t, repo, keep.ID).ID)
 	_, err = repo.Get(context.Background(), drop.ID)
 	require.Error(t, err)
+}
+
+func TestSucceededPlanStacks(t *testing.T) {
+	repo := testJobRepo(t)
+	createJob(t, repo, &models.Job{
+		StackName: "a", Status: models.JobStatusSucceeded, Action: models.JobActionPlan,
+		PRNumber: 42, CommitSHA: "abc123",
+	})
+	createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "b", Dir: "stacks/b",
+		Status: models.JobStatusSucceeded, Action: models.JobActionPlan,
+		PRNumber: 42, CommitSHA: "abc123",
+	})
+	createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "c", Dir: "stacks/c",
+		Status: models.JobStatusFailed, Action: models.JobActionPlan,
+		PRNumber: 42, CommitSHA: "abc123",
+	})
+	createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "d", Dir: "stacks/d",
+		Status: models.JobStatusSucceeded, Action: models.JobActionPlan,
+		PRNumber: 42, CommitSHA: "other",
+	})
+	createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "e", Dir: "stacks/e",
+		Status: models.JobStatusSucceeded, Action: models.JobActionApply,
+		PRNumber: 42, CommitSHA: "abc123",
+	})
+	// Duplicate succeeded plan for a should still yield a once.
+	createJob(t, repo, &models.Job{
+		ID: uuid.NewString(), StackName: "a", Dir: "stacks/a",
+		Status: models.JobStatusSucceeded, Action: models.JobActionPlan,
+		PRNumber: 42, CommitSHA: "abc123",
+	})
+
+	got, err := repo.SucceededPlanStacks(context.Background(), "acme/infra", 42, "abc123")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"a", "b"}, got)
 }
 
 func TestCleanupExpiredJobsDeletesOldTerminalJobsOnly(t *testing.T) {

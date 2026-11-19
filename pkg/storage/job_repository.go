@@ -115,6 +115,22 @@ func (r *jobRepository) Get(ctx context.Context, jobID string) (*models.Job, err
 	return &job, nil
 }
 
+func (r *jobRepository) SucceededPlanStacks(ctx context.Context, repo string, prNumber int, commitSHA string) ([]string, error) {
+	var stacks []string
+	err := r.db.pool.WithContext(ctx).
+		Model(&models.Job{}).
+		Where(
+			"repo = ? AND pr_number = ? AND commit_sha = ? AND action = ? AND status = ?",
+			repo, prNumber, commitSHA, models.JobActionPlan, models.JobStatusSucceeded,
+		).
+		Distinct("stack_name").
+		Pluck("stack_name", &stacks).Error
+	if err != nil {
+		return nil, err
+	}
+	return stacks, nil
+}
+
 func (r *jobRepository) ClaimPendingJobForAgent(ctx context.Context, agentID string, status models.JobStatus, leaseExpiresAt *time.Time) (*models.Job, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("agentID is required")
